@@ -1,6 +1,1 @@
-{
-  "name": "OmniGrab IDM - Media Download Accelerator & Extension",
-  "description": "Аналог IDM с интуитивным интерфейсом, браузерным расширением, автоматическим распознаванием видео, многопоточным ускорителем и пакетной загрузкой.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
+{"name":"OmniGrab","version":"3.0.0","description":"Локальный загрузчик видео и аудио для Windows с расширением браузера."}

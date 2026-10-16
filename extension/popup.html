@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>OmniGrab</title>
+  </head>
+  <body>
+    <header>
+      <strong>OmniGrab</strong><small>3.0 · загрузчик для ПК</small>
+    </header>
+    <div id="status" role="status">Подключение…</div>
+    <section id="pair" hidden>
+      <p>
+        Запустите OmniGrab.exe. Во вкладке «Расширение» найдите код и введите
+        его здесь.
+      </p>
+      <div class="row">
+        <input
+          id="code"
+          aria-label="Код подключения"
+          inputmode="numeric"
+          maxlength="6"
+          placeholder="123456"
+        /><button id="connect">Подключить</button>
+      </div>
+    </section>
+    <section>
+      <button id="page" class="primary">Скачать видео со страницы</button>
+      <p class="muted">Используйте для YouTube и плееров с blob-адресом.</p>
+    </section>
+    <h2>Найденные потоки</h2>
+    <div id="list"></div>
+    <footer>
+      <button id="refresh">Обновить</button
+      ><span>OmniGrab.exe должен быть запущен.</span>
+    </footer>
+    <script src="popup.js"></script>
+  </body>
+</html>
