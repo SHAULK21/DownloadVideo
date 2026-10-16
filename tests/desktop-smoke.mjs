@@ -43,7 +43,10 @@ try {
   const call = api(base, token);
   const state = await call("/api/state");
   assert.equal(state.desktop, true);
-  assert.equal(state.version, "3.1.0");
+  assert.equal(
+    state.version,
+    JSON.parse(fs.readFileSync("package.json", "utf8")).version,
+  );
   const security = await application.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0];
     const p = w.webContents.getLastWebPreferences();
