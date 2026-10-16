@@ -49,39 +49,53 @@ before(async () => {
   assert.equal(result.status, 0, result.stderr?.toString());
   fixture = fs.readFileSync(path.join(temp, "fixture.mp4"));
   fs.mkdirSync(path.join(temp, "hls"));
-  const hls = spawnSync("ffmpeg", [
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-i",
-    path.join(temp, "fixture.mp4"),
-    "-c",
-    "copy",
-    "-hls_time",
-    "1",
-    "-hls_playlist_type",
-    "vod",
-    path.join(temp, "hls", "index.m3u8"),
-  ]);
+  const hls = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      path.join(temp, "fixture.mp4"),
+      "-c",
+      "copy",
+      "-hls_time",
+      "1",
+      "-hls_playlist_type",
+      "vod",
+      "index.m3u8",
+    ],
+    { cwd: path.join(temp, "hls") },
+  );
   assert.equal(hls.status, 0, hls.stderr?.toString());
   fs.mkdirSync(path.join(temp, "dash"));
-  const dash = spawnSync("ffmpeg", [
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-i",
-    path.join(temp, "fixture.mp4"),
-    "-c",
-    "copy",
-    "-f",
-    "dash",
-    "-init_seg_name",
-    "init-stream$RepresentationID$.m4s",
-    "-media_seg_name",
-    "chunk-stream$RepresentationID$-$Number%05d$.m4s",
-    path.join(temp, "dash", "index.mpd"),
-  ]);
+  const dash = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      path.join(temp, "fixture.mp4"),
+      "-c",
+      "copy",
+      "-f",
+      "dash",
+      "-init_seg_name",
+      "init-stream$RepresentationID$.m4s",
+      "-media_seg_name",
+      "chunk-stream$RepresentationID$-$Number%05d$.m4s",
+      "index.mpd",
+    ],
+    { cwd: path.join(temp, "dash") },
+  );
   assert.equal(dash.status, 0, dash.stderr?.toString());
+  assert.ok(
+    fs
+      .readdirSync(path.join(temp, "dash"))
+      .filter((name) => name.endsWith(".m4s")).length >= 4,
+    "DASH fixture must contain initialization and media fragments next to the manifest",
+  );
   server = http.createServer((req, res) => {
     if (/^\/(hls|dash)\/[\w.-]+$/.test(req.url)) {
       const file = path.join(temp, req.url.slice(1));
