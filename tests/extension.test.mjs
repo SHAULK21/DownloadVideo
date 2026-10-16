@@ -218,6 +218,8 @@ test("extension registry survives worker restart and clears only the navigated t
   );
   assert.equal(posted.at(-1).items[0].url, "https://other.test/watch");
   removed(7);
+  assert.equal((await send({ action: "OPEN_APP" })).ok, true);
+  assert.equal(posted.at(-1).action, "show");
 });
 test("floating button attaches to late source and sends the current source", async () => {
   const dom = new JSDOM("<html><body><video></video></body></html>", {

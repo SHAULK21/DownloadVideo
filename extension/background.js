@@ -230,7 +230,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return { ok: true, id: r.ids[0] };
     }
     if (message.action === "OPEN_APP") {
-      await chrome.tabs.create({ url: BASE });
+      await local("/api/app", "POST", { action: "show" });
       return { ok: true };
     }
     throw Error("Неизвестное действие.");

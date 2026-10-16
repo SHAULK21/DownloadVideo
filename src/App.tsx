@@ -21,7 +21,7 @@ import {
   AlertTriangle,
   LoaderCircle,
 } from "lucide-react";
-import icon from "./assets/images/idm_app_icon_1792147324206.jpg";
+import icon from "../desktop/assets/icon.png";
 import type { State, Settings, Task, Stream } from "./types";
 import { api, accessToken } from "./lib/api";
 import {
@@ -614,7 +614,7 @@ export default function App() {
         <button className="brand" onClick={() => setTab("downloads")}>
           <img src={icon} alt="" />
           <span>
-            OmniGrab <small>3.0.1</small>
+            OmniGrab <small>3.1.0</small>
           </span>
         </button>
         <nav className={mobileMenu ? "open" : ""}>
@@ -1120,7 +1120,18 @@ export default function App() {
         </section>
       )}
       <footer className="app-footer">
-        <span>OmniGrab 3.0.1 · Локальный загрузчик для ПК</span>
+        <span>
+          {state?.desktop
+            ? "Закрытие окна сворачивает в трей · загрузки продолжаются"
+            : "OmniGrab 3.1 · Загрузчик для ПК"}
+        </span>
+        {state?.desktop && (
+          <button
+            onClick={() => action("/api/app", "POST", { action: "quit" })}
+          >
+            Выйти из программы
+          </button>
+        )}
         <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">
           yt-dlp + FFmpeg · лицензии
         </a>

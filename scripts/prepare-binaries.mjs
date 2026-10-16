@@ -49,3 +49,4 @@ for (const name of ["ffmpeg.exe", "ffprobe.exe"]) {
   );
 }
 console.log("Windows tools ready.");
+fs.copyFileSync("release/node-win.exe", "release/node.exe");

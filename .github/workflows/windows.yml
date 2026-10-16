@@ -26,7 +26,8 @@ jobs:
         env:
           OMNIGRAB_YTDLP: yt-dlp.exe
       - run: npm run build:windows
-      - run: node tests/sea-smoke.mjs release/OmniGrab.exe
+      - run: node tests/desktop-smoke.mjs release/desktop-build/win-unpacked/OmniGrab.exe
+      - run: node tests/portable-smoke.mjs release/OmniGrab.exe
       - uses: actions/upload-artifact@v4
         with:
           name: OmniGrab-Windows-x64
@@ -36,4 +37,5 @@ jobs:
             README-Windows.txt
             THIRD_PARTY_NOTICES.txt
             release/SHA256SUMS.txt
+            release/desktop-smoke.png
           retention-days: 14

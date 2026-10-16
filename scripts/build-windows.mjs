@@ -1,13 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { build } from "esbuild";
-import { inject } from "postject";
-const ROOT = process.cwd(),
-  release = path.join(ROOT, "release");
-fs.mkdirSync(release, { recursive: true });
+const root = process.cwd();
+const release = path.join(root, "release");
 const hash = (file) =>
   createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const pins = {
@@ -19,101 +15,67 @@ const pins = {
     "5fd1fd85df1fc5b29192e5c8cd71b3cc99a0ac2af35338ad2007b221960d65ae",
   "ffprobe.exe":
     "7a904eb5b51682d33e6e9fcb5c7c3fb1d53b65658f70251b1a4687ff042a3763",
-  "ffmpeg-win.zip":
-    "c32269c715f932b45487702cfc238bca54945a63957efa3263f025a273000e99",
 };
-for (const [name, expected] of Object.entries(pins)) {
-  if (!fs.existsSync(path.join(release, name)))
-    throw Error(
-      "Отсутствует release/" +
-        name +
-        ". См. README: подготовка бинарных зависимостей.",
-    );
+for (const [name, expected] of Object.entries(pins))
   if (hash(path.join(release, name)) !== expected)
     throw Error("SHA256 mismatch: " + name);
-}
-await build({
-  entryPoints: ["desktop/main.mjs"],
-  bundle: true,
-  platform: "node",
-  format: "cjs",
-  target: "node24",
-  outfile: "release/main.cjs",
-  external: ["node:*"],
+const resources = path.join(release, "desktop-resources");
+const project = path.join(release, "desktop-app");
+fs.rmSync(project, { recursive: true, force: true });
+fs.rmSync(resources, { recursive: true, force: true });
+fs.mkdirSync(path.join(resources, "tools"), { recursive: true });
+for (const name of Object.keys(pins))
+  fs.copyFileSync(
+    path.join(release, name),
+    path.join(resources, "tools", name === "node-win.exe" ? "node.exe" : name),
+  );
+fs.cpSync("plugins", path.join(resources, "plugins"), {
+  recursive: true,
+  filter: (source) =>
+    !source.includes("__pycache__") && !source.endsWith(".pyc"),
 });
-const assets = {};
-function walk(dir, prefix) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "__pycache__" || entry.name.endsWith(".pyc")) continue;
-    const file = path.join(dir, entry.name),
-      key = prefix + entry.name;
-    if (entry.isDirectory()) walk(file, key + "/");
-    else assets[key] = file;
-  }
-}
-walk(path.join(ROOT, "dist"), "web/");
-walk(path.join(ROOT, "plugins"), "plugins/");
-for (const name of ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "node.exe"]) {
-  const input = path.join(release, name === "node.exe" ? "node-win.exe" : name);
-  const compressed = path.join(release, name + ".gz");
-  if (
-    !fs.existsSync(compressed) ||
-    fs.statSync(compressed).mtimeMs < fs.statSync(input).mtimeMs
-  )
-    fs.writeFileSync(
-      compressed,
-      gzipSync(fs.readFileSync(input), { level: 9 }),
-    );
-  assets["tools/" + name + ".gz"] = compressed;
-}
-const config = {
-  main: path.join(release, "main.cjs"),
-  output: path.join(release, "sea.blob"),
-  disableExperimentalSEAWarning: true,
-  useSnapshot: false,
-  useCodeCache: false,
-  execArgvExtension: "none",
-  assets,
-};
-fs.writeFileSync(path.join(release, "sea.json"), JSON.stringify(config));
-if (process.versions.node !== "24.19.0")
-  throw Error("SEA требует Node v24.19.0, совпадающий с Windows runtime.");
+for (const dir of ["desktop", "dist"])
+  fs.cpSync(dir, path.join(project, dir), { recursive: true });
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+fs.writeFileSync(
+  path.join(project, "package.json"),
+  JSON.stringify(
+    {
+      name: "omnigrab",
+      version: pkg.version,
+      description: "OmniGrab — загрузчик видео и аудио",
+      author: "SHAULK21",
+      license: "UNLICENSED",
+      main: "desktop/electron.mjs",
+    },
+    null,
+    2,
+  ),
+);
 execFileSync(
   process.execPath,
-  ["--experimental-sea-config", path.join(release, "sea.json")],
-  { stdio: "inherit" },
+  [
+    "node_modules/electron-builder/cli.js",
+    "--config",
+    "electron-builder.json",
+    "--win",
+    "portable",
+    "--x64",
+    "--publish",
+    "never",
+  ],
+  {
+    stdio: "inherit",
+    env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" },
+  },
 );
 const output = path.join(release, "OmniGrab.exe");
-// The packaged program has its own identity; do not retain Node's Authenticode signature.
-const executable = fs.readFileSync(path.join(release, "node-win.exe"));
-const pe = executable.readUInt32LE(0x3c);
-if (executable.toString("ascii", pe, pe + 4) !== "PE\0\0")
-  throw Error("Invalid Windows PE");
-const optional = pe + 24;
-if (executable.readUInt16LE(optional) !== 0x20b) throw Error("Expected PE32+");
-const security = optional + 112 + 4 * 8;
-const certificateOffset = executable.readUInt32LE(security);
-const certificateSize = executable.readUInt32LE(security + 4);
-executable.writeUInt32LE(0, security);
-executable.writeUInt32LE(0, security + 4);
-executable.writeUInt32LE(0, optional + 64);
-fs.writeFileSync(
-  output,
-  certificateOffset && certificateOffset + certificateSize === executable.length
-    ? executable.subarray(0, certificateOffset)
-    : executable,
-);
-await inject(
-  output,
-  "NODE_SEA_BLOB",
-  fs.readFileSync(path.join(release, "sea.blob")),
-  { sentinelFuse: "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2" },
-);
+fs.copyFileSync(path.join(release, "desktop-build", "OmniGrab.exe"), output);
 const buildInfo = {
-  version: "3.0.1",
+  version: pkg.version,
   platform: "win32-x64",
-  node: "24.19.0",
-  ytDlp: "2026.08.19",
+  shell: "Electron",
+  electron: pkg.devDependencies.electron,
   sha256: hash(output),
   bytes: fs.statSync(output).size,
   dependencies: pins,
@@ -126,4 +88,4 @@ fs.writeFileSync(
   path.join(release, "SHA256SUMS.txt"),
   `${buildInfo.sha256}  OmniGrab.exe\n${hash(path.join(release, "OmniGrab-Extension.zip"))}  OmniGrab-Extension.zip\n`,
 );
-console.log("Windows executable:", buildInfo);
+console.log("Windows desktop executable:", buildInfo);

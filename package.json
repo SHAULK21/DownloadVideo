@@ -1,18 +1,19 @@
 {
   "name": "omnigrab",
   "private": true,
-  "version": "3.0.1",
+  "version": "3.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=127.0.0.1",
     "build": "vite build && node scripts/build-extension.mjs",
-    "start": "node desktop/main.mjs",
+    "start": "electron .",
     "lint": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.mjs",
     "build:windows": "npm run build && node scripts/prepare-binaries.mjs && node scripts/build-windows.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
     "format": "prettier --write src desktop extension scripts tests",
-    "check:format": "prettier --check src desktop extension scripts tests"
+    "check:format": "prettier --check src desktop extension scripts tests",
+    "test:desktop": "node tests/desktop-smoke.mjs release/desktop-build/win-unpacked/OmniGrab.exe"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -28,10 +29,11 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
+    "electron": "44.8.0",
+    "electron-builder": "26.15.3",
     "esbuild": "^0.28.2",
     "jsdom": "^30.1.3",
     "playwright-core": "^1.64.1",
-    "postject": "^1.0.0-alpha.6",
     "prettier": "^3.9.10",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
@@ -39,5 +41,6 @@
   },
   "engines": {
     "node": ">=24.19.0"
-  }
+  },
+  "main": "desktop/electron.mjs"
 }

@@ -46,6 +46,7 @@ export interface Task {
   estimated?: boolean;
 }
 export interface State {
+  desktop?: boolean;
   version: string;
   settings: Settings;
   tasks: Task[];

@@ -1,4 +1,4 @@
-OmniGrab 3.0 — third-party components
+OmniGrab 3.1 — third-party components
 
 The application communicates with unmodified command-line executables as separate processes.
 Node.js 24.19.0 — MIT and bundled third-party licenses. Source: https://github.com/nodejs/node/tree/v24.19.0
@@ -17,6 +17,10 @@ Archive SHA256: c32269c715f932b45487702cfc238bca54945a63957efa3263f025a273000e99
 
 React / React-DOM — MIT. https://github.com/facebook/react
 Lucide — ISC. https://github.com/lucide-icons/lucide
+
+Electron 44.8.0 — MIT; Chromium and bundled dependencies retain their respective licenses.
+Source: https://github.com/electron/electron/tree/v44.8.0
+Electron/Chromium license files are included in the portable application runtime.
 
 Full license notices follow.
 

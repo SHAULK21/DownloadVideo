@@ -2,7 +2,6 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { spawn } from "node:child_process";
 const mime = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -36,7 +35,7 @@ async function body(req) {
 }
 export function createServer(
   manager,
-  { port = 17893, token, readAsset, openFolder, chooseFolder } = {},
+  { port = 17893, token, readAsset, openFolder, chooseFolder, desktop } = {},
 ) {
   if (!token) throw Error("Missing access token");
   let pairing = {
@@ -97,7 +96,11 @@ export function createServer(
         res.end(JSON.stringify(value));
       };
       if (url.pathname === "/api/health" && req.method === "GET") {
-        json({ app: "OmniGrab", version: "3.0.0" });
+        json({
+          app: "OmniGrab",
+          version: manager.publicState().version,
+          desktop: !!desktop,
+        });
         return;
       }
       if (url.pathname === "/api/pair" && req.method === "POST") {
@@ -121,7 +124,11 @@ export function createServer(
           );
           return;
         }
-        json({ token, settings: manager.settings, version: "3.0.0" });
+        json({
+          token,
+          settings: manager.settings,
+          version: manager.publicState().version,
+        });
         return;
       }
       const authorization = req.headers.authorization?.replace(/^Bearer /, "");
@@ -144,6 +151,7 @@ export function createServer(
       if (url.pathname === "/api/state" && req.method === "GET") {
         json({
           ...manager.publicState(),
+          desktop: !!desktop,
           pairing: Date.now() < pairing.expires ? pairing : null,
         });
         return;
@@ -154,6 +162,14 @@ export function createServer(
           expires: Date.now() + 600000,
         };
         json(pairing);
+        return;
+      }
+      if (url.pathname === "/api/app" && req.method === "POST") {
+        const input = await body(req);
+        if (!desktop || !["show", "hide", "quit"].includes(input.action))
+          throw Error("Действие доступно в настольном приложении.");
+        desktop[input.action]();
+        json({ ok: true });
         return;
       }
       if (url.pathname === "/api/settings" && req.method === "PUT") {
@@ -337,58 +353,4 @@ export function persistentToken(dataDir) {
     fs.writeFileSync(p, token, { mode: 0o600 });
     return token;
   }
-}
-export function openBrowser(url) {
-  if (process.platform === "win32") {
-    spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    }).unref();
-  } else {
-    spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], {
-      detached: true,
-      stdio: "ignore",
-    })
-      .on("error", () => {})
-      .unref();
-  }
-}
-export function windowsFolder(dir) {
-  return new Promise((resolve, reject) => {
-    const c = spawn("explorer.exe", [dir], {
-      windowsHide: true,
-      stdio: "ignore",
-    });
-    c.on("error", reject);
-    c.on("spawn", resolve);
-  });
-}
-export function windowsChooseFolder(dir) {
-  return new Promise((resolve, reject) => {
-    const script =
-      "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'OmniGrab'; $d.SelectedPath = $env:OG_INITIAL_DIR; if ($d.ShowDialog() -eq 'OK') { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::Write($d.SelectedPath) }";
-    const c = spawn(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-STA",
-        "-EncodedCommand",
-        Buffer.from(script, "utf16le").toString("base64"),
-      ],
-      {
-        windowsHide: true,
-        env: { ...process.env, OG_INITIAL_DIR: dir },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    let out = "";
-    c.stdout.on("data", (b) => (out += b));
-    c.on("error", reject);
-    c.on("close", (code) =>
-      code === 0
-        ? resolve(out.replace(/^\uFEFF/, "").trim())
-        : reject(Error("Не удалось открыть выбор папки.")),
-    );
-  });
 }

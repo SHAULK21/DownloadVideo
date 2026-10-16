@@ -96,3 +96,7 @@ $("refresh").addEventListener("click", () =>
   refresh().catch((e) => status(e.message, true)),
 );
 refresh().catch((e) => status(e.message, true));
+$("open-app").addEventListener("click", async () => {
+  const r = await send({ action: "OPEN_APP" });
+  if (r.error) status(r.error, true);
+});
