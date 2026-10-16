@@ -24,7 +24,6 @@ const child = spawn(executable, ["--disable-gpu"], {
     OMNIGRAB_DATA_DIR: dataDir,
     OMNIGRAB_PORT: String(port),
   },
-  windowsHide: true,
   stdio: "ignore",
 });
 child.on("error", (error) => {
@@ -76,6 +75,15 @@ try {
   console.log(
     "Portable EXE smoke passed: no console subsystem, real Windows window, embedded tools, actual download SHA256 and clean exit.",
   );
+} catch (error) {
+  const log = path.join(dataDir, "error.log");
+  if (fs.existsSync(log))
+    console.error(
+      fs
+        .readFileSync(log, "utf8")
+        .replace(/#token=[a-f0-9]+/g, "#token=[redacted]"),
+    );
+  throw error;
 } finally {
   if (child.exitCode === null)
     spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {

@@ -152,10 +152,15 @@ try {
     windowsHide: true,
   });
   await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      second.kill();
+      reject(Error("Second instance did not exit"));
+    }, 15000);
     second.once("error", reject);
-    second.once("close", (code) =>
-      code === 0 ? resolve() : reject(Error("Second instance exit: " + code)),
-    );
+    second.once("close", (code) => {
+      clearTimeout(timer);
+      code === 0 ? resolve() : reject(Error("Second instance exit: " + code));
+    });
   });
   await until(() =>
     application.evaluate(({ BrowserWindow }) =>
@@ -198,6 +203,15 @@ try {
   console.log(
     "Desktop smoke passed: GUI executable, actual window, renderer isolation, native dialogs, real downloads, tray close/background download, extension pairing, second instance, graceful exit and restart.",
   );
+} catch (error) {
+  const log = path.join(dataDir, "error.log");
+  if (fs.existsSync(log))
+    console.error(
+      fs
+        .readFileSync(log, "utf8")
+        .replace(/#token=[a-f0-9]+/g, "#token=[redacted]"),
+    );
+  throw error;
 } finally {
   await application?.close().catch(() => {});
   await new Promise((resolve) => media.server.close(resolve));

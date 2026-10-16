@@ -25,8 +25,9 @@ jobs:
       - run: npm test
         env:
           OMNIGRAB_YTDLP: yt-dlp.exe
-      - run: npm run build:windows
+      - run: npm run build && node scripts/build-windows.mjs --dir
       - run: node tests/desktop-smoke.mjs release/desktop-build/win-unpacked/OmniGrab.exe
+      - run: node scripts/build-windows.mjs --prepackaged
       - run: node tests/portable-smoke.mjs release/OmniGrab.exe
       - uses: actions/upload-artifact@v4
         with:

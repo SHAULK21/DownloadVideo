@@ -21,37 +21,45 @@ for (const [name, expected] of Object.entries(pins))
     throw Error("SHA256 mismatch: " + name);
 const resources = path.join(release, "desktop-resources");
 const project = path.join(release, "desktop-app");
-fs.rmSync(project, { recursive: true, force: true });
-fs.rmSync(resources, { recursive: true, force: true });
-fs.mkdirSync(path.join(resources, "tools"), { recursive: true });
-for (const name of Object.keys(pins))
-  fs.copyFileSync(
-    path.join(release, name),
-    path.join(resources, "tools", name === "node-win.exe" ? "node.exe" : name),
-  );
-fs.cpSync("plugins", path.join(resources, "plugins"), {
-  recursive: true,
-  filter: (source) =>
-    !source.includes("__pycache__") && !source.endsWith(".pyc"),
-});
-for (const dir of ["desktop", "dist"])
-  fs.cpSync(dir, path.join(project, dir), { recursive: true });
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-fs.writeFileSync(
-  path.join(project, "package.json"),
-  JSON.stringify(
-    {
-      name: "omnigrab",
-      version: pkg.version,
-      description: "OmniGrab — загрузчик видео и аудио",
-      author: "SHAULK21",
-      license: "UNLICENSED",
-      main: "desktop/electron.mjs",
-    },
-    null,
-    2,
-  ),
-);
+const dirOnly = process.argv.includes("--dir");
+const prepackaged = process.argv.includes("--prepackaged");
+if (!prepackaged) {
+  fs.rmSync(project, { recursive: true, force: true });
+  fs.rmSync(resources, { recursive: true, force: true });
+  fs.mkdirSync(path.join(resources, "tools"), { recursive: true });
+  for (const name of Object.keys(pins))
+    fs.copyFileSync(
+      path.join(release, name),
+      path.join(
+        resources,
+        "tools",
+        name === "node-win.exe" ? "node.exe" : name,
+      ),
+    );
+  fs.cpSync("plugins", path.join(resources, "plugins"), {
+    recursive: true,
+    filter: (source) =>
+      !source.includes("__pycache__") && !source.endsWith(".pyc"),
+  });
+  for (const dir of ["desktop", "dist"])
+    fs.cpSync(dir, path.join(project, dir), { recursive: true });
+  fs.writeFileSync(
+    path.join(project, "package.json"),
+    JSON.stringify(
+      {
+        name: "omnigrab",
+        version: pkg.version,
+        description: "OmniGrab — загрузчик видео и аудио",
+        author: "SHAULK21",
+        license: "UNLICENSED",
+        main: "desktop/electron.mjs",
+      },
+      null,
+      2,
+    ),
+  );
+}
 execFileSync(
   process.execPath,
   [
@@ -59,16 +67,20 @@ execFileSync(
     "--config",
     "electron-builder.json",
     "--win",
-    "portable",
+    dirOnly ? "dir" : "portable",
     "--x64",
     "--publish",
     "never",
+    ...(prepackaged
+      ? ["--prepackaged", path.join(release, "desktop-build", "win-unpacked")]
+      : []),
   ],
   {
     stdio: "inherit",
     env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" },
   },
 );
+if (dirOnly) process.exit(0);
 const output = path.join(release, "OmniGrab.exe");
 fs.copyFileSync(path.join(release, "desktop-build", "OmniGrab.exe"), output);
 const buildInfo = {

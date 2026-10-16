@@ -235,9 +235,7 @@ async function start() {
   });
   if (saved.maximized) window.maximize();
   window.setMenu(null);
-  window.webContents.on("page-title-updated", (event) =>
-    event.preventDefault(),
-  );
+  window.on("page-title-updated", (event) => event.preventDefault());
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url === origin + "/THIRD_PARTY_NOTICES.txt") openLicenses();
     return { action: "deny" };
