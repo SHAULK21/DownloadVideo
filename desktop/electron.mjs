@@ -15,6 +15,7 @@ import path from "node:path";
 import os from "node:os";
 import { DownloadManager } from "./manager.mjs";
 import { createServer, persistentToken } from "./server.mjs";
+import { prepareRuntime } from "./runtime.mjs";
 
 app.setName("OmniGrab");
 app.setAppUserModelId("com.omnigrab.desktop");
@@ -173,9 +174,19 @@ async function quit() {
 async function start() {
   await app.whenReady();
   nativeTheme.themeSource = "dark";
-  const tools = app.isPackaged
-    ? path.join(resources, "tools")
-    : path.join(root, "release");
+  const runtime = app.isPackaged
+    ? prepareRuntime({
+        sourceDir: resources,
+        dataDir,
+        manifest: JSON.parse(
+          fs.readFileSync(path.join(root, "runtime-manifest.json"), "utf8"),
+        ),
+      })
+    : {
+        tools: path.join(root, "release"),
+        plugins: path.join(root, "plugins"),
+      };
+  const tools = runtime.tools;
   manager = new DownloadManager({
     dataDir,
     ytDlp:
@@ -188,9 +199,7 @@ async function start() {
       (process.platform === "win32"
         ? path.join(tools, "ffmpeg.exe")
         : "ffmpeg"),
-    pluginDir: app.isPackaged
-      ? path.join(resources, "plugins")
-      : path.join(root, "plugins"),
+    pluginDir: runtime.plugins,
   });
   const token = persistentToken(dataDir);
   server = createServer(manager, {

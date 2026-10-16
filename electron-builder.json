@@ -18,6 +18,7 @@
   },
   "portable": {
     "artifactName": "OmniGrab.exe",
+    "unpackDirName": true,
     "requestExecutionLevel": "user"
   }
 }

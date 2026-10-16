@@ -217,7 +217,7 @@ export class DownloadManager extends EventEmitter {
   }
   publicState() {
     return {
-      version: "3.1.0",
+      version: "3.1.1",
       settings: this.settings,
       tasks: this.tasks.map(({ headers, ...t }) => t),
       warning: this.loadWarning || null,

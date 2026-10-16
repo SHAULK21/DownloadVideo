@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { fileHash } from "../desktop/runtime.mjs";
 const root = process.cwd();
 const release = path.join(root, "release");
 const hash = (file) =>
@@ -44,6 +45,16 @@ if (!prepackaged) {
   });
   for (const dir of ["desktop", "dist"])
     fs.cpSync(dir, path.join(project, dir), { recursive: true });
+  const manifest = {};
+  for (const file of fs.readdirSync(resources, { recursive: true })) {
+    const absolute = path.join(resources, file);
+    if (fs.statSync(absolute).isFile())
+      manifest[file.replaceAll("\\", "/")] = fileHash(absolute);
+  }
+  fs.writeFileSync(
+    path.join(project, "runtime-manifest.json"),
+    JSON.stringify(manifest, null, 2),
+  );
   fs.writeFileSync(
     path.join(project, "package.json"),
     JSON.stringify(
