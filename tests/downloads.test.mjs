@@ -75,6 +75,10 @@ before(async () => {
     "copy",
     "-f",
     "dash",
+    "-init_seg_name",
+    "init-stream$RepresentationID$.m4s",
+    "-media_seg_name",
+    "chunk-stream$RepresentationID$-$Number%05d$.m4s",
     path.join(temp, "dash", "index.mpd"),
   ]);
   assert.equal(dash.status, 0, dash.stderr?.toString());
@@ -91,7 +95,9 @@ before(async () => {
           ? "application/vnd.apple.mpegurl"
           : req.url.endsWith(".mpd")
             ? "application/dash+xml"
-            : "video/mp2t",
+            : req.url.endsWith(".m4s")
+              ? "video/mp4"
+              : "video/mp2t",
       });
       res.end(fs.readFileSync(file));
       return;
@@ -289,7 +295,11 @@ test("real HLS fragments are downloaded and MP3 extraction produces an audio fil
   );
   assert.ok(
     m.tasks.every((t) => t.status === "completed"),
-    JSON.stringify(m.tasks.map((t) => t.errorMsg)),
+    JSON.stringify({
+      tasks: m.tasks.map((t) => ({ url: t.url, error: t.errorMsg })),
+      dashFiles: fs.readdirSync(path.join(temp, "dash")),
+      manifest: fs.readFileSync(path.join(temp, "dash", "index.mpd"), "utf8"),
+    }),
   );
   const audio = m.tasks.find((t) => t.formatId === "audio");
   assert.equal(path.extname(audio.outputPath), ".mp3");
