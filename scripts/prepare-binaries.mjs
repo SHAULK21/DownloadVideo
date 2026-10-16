@@ -15,8 +15,8 @@ const files = [
   ],
   [
     "ffmpeg-win.zip",
-    "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
-    "c32269c715f932b45487702cfc238bca54945a63957efa3263f025a273000e99",
+    "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/autobuild-2026-10-15-18-15/ffmpeg-N-127565-g5fb8bfe275-win64-gpl.zip",
+    "bce2bd128c2be0b3578a6ea6306a7b47d316cdde3decbdae360e367c9b23bf92",
   ],
 ];
 fs.mkdirSync("release", { recursive: true });
