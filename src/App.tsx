@@ -625,7 +625,7 @@ export default function App() {
         <button className="brand" onClick={() => setTab("downloads")}>
           <img src={icon} alt="" />
           <span>
-            OmniGrab <small>3.3.0</small>
+            OmniGrab <small>3.3.1</small>
           </span>
         </button>
         <nav className={mobileMenu ? "open" : ""}>
