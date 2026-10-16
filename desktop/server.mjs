@@ -190,6 +190,28 @@ export function createServer(
         });
         return;
       }
+      if (url.pathname === "/api/import-download" && req.method === "POST") {
+        const input = await body(req);
+        const controller = new AbortController();
+        res.on("close", () => controller.abort());
+        json(await manager.importDownload(input, controller.signal), 201);
+        return;
+      }
+      if (
+        ["/api/confirm-download", "/api/abort-download"].includes(
+          url.pathname,
+        ) &&
+        req.method === "POST"
+      ) {
+        const input = await body(req);
+        json(
+          manager.finishImport(
+            input.key,
+            url.pathname === "/api/abort-download",
+          ),
+        );
+        return;
+      }
       if (url.pathname === "/api/tasks" && req.method === "POST") {
         const input = await body(req);
         json({ ids: manager.add(input.items) }, 201);

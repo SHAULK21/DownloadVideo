@@ -27,6 +27,8 @@ jobs:
           OMNIGRAB_YTDLP: yt-dlp.exe
       - run: npm run build && node scripts/build-windows.mjs --dir
       - run: node tests/desktop-smoke.mjs release/desktop-build/win-unpacked/OmniGrab.exe
+      - run: node node_modules/playwright-core/cli.js install chromium
+      - run: node tests/download-interception-smoke.mjs
       - run: node scripts/build-windows.mjs --prepackaged
       - run: node tests/portable-smoke.mjs release/OmniGrab.exe
       - uses: actions/upload-artifact@v4

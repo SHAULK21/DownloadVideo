@@ -50,6 +50,13 @@ input {
   border-radius: 7px;
   padding: 9px;
 }
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  margin-right: 7px;
+  vertical-align: middle;
+  accent-color: #10b8cd;
+}
 button {
   background: #1b304a;
   color: #dfeeff;

@@ -432,12 +432,13 @@ function SettingsDialog({
               1048576,
               "Общий предел скорости, КБ/с (0 — без лимита)",
             )}
-            {number(
-              "minFileSizeToCatchKb",
-              0,
-              1048576,
-              "Минимальный размер для перехвата, КБ",
-            )}
+            {!form.captureAllFiles &&
+              number(
+                "minFileSizeToCatchKb",
+                0,
+                1048576,
+                "Минимальный размер для перехвата, КБ",
+              )}
           </div>
           <p className="muted">
             Предел скорости распределяется консервативно между файлами и
@@ -471,22 +472,32 @@ function SettingsDialog({
               </button>
             </div>
           </label>
-          <label>
-            Типы медиа для расширения
-            <input
-              value={form.interceptVideoTypes.join(", ")}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  interceptVideoTypes: e.target.value
-                    .split(",")
-                    .map((s) => s.trim()),
-                })
-              }
-            />
-          </label>
+          {!form.captureAllFiles && (
+            <label>
+              Типы медиа для расширения
+              <input
+                value={form.interceptVideoTypes.join(", ")}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    interceptVideoTypes: e.target.value
+                      .split(",")
+                      .map((s) => s.trim()),
+                  })
+                }
+              />
+            </label>
+          )}
           {(
             [
+              [
+                "interceptBrowserDownloads",
+                "Перехватывать загрузки браузера — любые файлы",
+              ],
+              [
+                "captureAllFiles",
+                "Находить файлы без фильтра по типу и размеру",
+              ],
               [
                 "autoStartOnDetect",
                 "Начинать скачивание сразу после добавления",
@@ -614,7 +625,7 @@ export default function App() {
         <button className="brand" onClick={() => setTab("downloads")}>
           <img src={icon} alt="" />
           <span>
-            OmniGrab <small>3.2.0</small>
+            OmniGrab <small>3.3.0</small>
           </span>
         </button>
         <nav className={mobileMenu ? "open" : ""}>
@@ -706,6 +717,10 @@ export default function App() {
                 ["all", "Все файлы"],
                 ["video", "Видео"],
                 ["audio", "Аудио"],
+                ["documents", "Документы"],
+                ["compressed", "Архивы"],
+                ["programs", "Программы"],
+                ["other", "Другие файлы"],
               ].map(([v, title]) => (
                 <button
                   className={kind === v ? "active" : ""}
@@ -983,15 +998,16 @@ export default function App() {
                               )}
                             </button>
                           )}
-                          {t.status === "completed" && (
-                            <button
-                              className="icon"
-                              title="Воспроизвести сохранённый файл"
-                              onClick={() => setPreview(t)}
-                            >
-                              <Play size={17} />
-                            </button>
-                          )}
+                          {t.status === "completed" &&
+                            ["video", "audio"].includes(t.category) && (
+                              <button
+                                className="icon"
+                                title="Воспроизвести сохранённый файл"
+                                onClick={() => setPreview(t)}
+                              >
+                                <Play size={17} />
+                              </button>
+                            )}
                           <button
                             className="icon"
                             title="Открыть папку"
@@ -1123,7 +1139,7 @@ export default function App() {
         <span>
           {state?.desktop
             ? "Закрытие окна сворачивает в трей · загрузки продолжаются"
-            : "OmniGrab 3.2 · Загрузчик для ПК"}
+            : "OmniGrab 3.3 · Загрузчик для ПК"}
         </span>
         {state?.desktop && (
           <button

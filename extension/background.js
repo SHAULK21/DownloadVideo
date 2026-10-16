@@ -1,6 +1,8 @@
 const BASE = "http://127.0.0.1:17893";
 const DEFAULTS = {
   showFloatingButton: true,
+  captureAllFiles: true,
+  interceptBrowserDownloads: true,
   interceptVideoTypes: [
     "mp4",
     "webm",
@@ -12,7 +14,7 @@ const DEFAULTS = {
     "mov",
     "mkv",
   ],
-  minFileSizeToCatchKb: 512,
+  minFileSizeToCatchKb: 0,
 };
 let registryQueue = Promise.resolve();
 const requestHeaders = new Map();
@@ -36,7 +38,10 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
       }[h.name.toLowerCase()];
       if (key && h.value) headers[key] = h.value;
     }
-    requestHeaders.set(details.requestId, headers);
+    requestHeaders.set(details.requestId, {
+      headers,
+      method: details.method || "GET",
+    });
     if (requestHeaders.size > 1000)
       requestHeaders.delete(requestHeaders.keys().next().value);
   },
@@ -78,7 +83,8 @@ async function settings() {
   }
 }
 async function record(details) {
-  const headers = requestHeaders.get(details.requestId) || {};
+  const request = requestHeaders.get(details.requestId) || {};
+  const headers = request.headers || {};
   requestHeaders.delete(details.requestId);
   if (details.tabId < 0 || details.url.startsWith(BASE)) return;
   const h = (name) =>
@@ -92,7 +98,13 @@ async function record(details) {
     return;
   }
   // Individual segments are not complete videos. Keep the manifest instead.
-  if (["ts", "m4s", "cmfv", "cmfa"].includes(ext)) return;
+  const attachment = /attachment/i.test(h("content-disposition"));
+  if (
+    !attachment &&
+    (["ts", "m4s", "cmfv", "cmfa"].includes(ext) ||
+      /(?:mp2t|iso.segment)/.test(mime))
+  )
+    return;
   const types = {
     "application/vnd.apple.mpegurl": "m3u8",
     "application/x-mpegurl": "m3u8",
@@ -103,13 +115,64 @@ async function record(details) {
     "audio/mp4": "m4a",
     "audio/ogg": "ogg",
   };
-  ext = types[mime.split(";")[0]] || ext;
+  const contentType = mime.split(";")[0].trim();
+  ext =
+    types[contentType] ||
+    (/^[a-z0-9]{1,12}$/.test(ext)
+      ? ext
+      : contentType.split("/")[1]?.replace(/^x-/, "").split("+")[0] || "file");
   const { settings: saved } = await chrome.storage.local.get("settings");
   const cfg = { ...DEFAULTS, ...saved };
-  if (!cfg.interceptVideoTypes.includes(ext)) return;
+  const media =
+    /^(?:video|audio)\//.test(mime) ||
+    details.type === "media" ||
+    [
+      "mp4",
+      "webm",
+      "m3u8",
+      "mpd",
+      "mp3",
+      "m4a",
+      "ogg",
+      "mov",
+      "mkv",
+      "flv",
+      "avi",
+      "wmv",
+      "aac",
+      "flac",
+      "wav",
+      "opus",
+    ].includes(ext);
+  const file =
+    attachment ||
+    /^image\//.test(mime) ||
+    (contentType.startsWith("application/") &&
+      !/(?:json|javascript|xml|mpegurl)/.test(contentType)) ||
+    [
+      "zip",
+      "7z",
+      "rar",
+      "pdf",
+      "exe",
+      "msi",
+      "iso",
+      "apk",
+      "docx",
+      "xlsx",
+      "pptx",
+      "epub",
+    ].includes(ext);
+  if (
+    cfg.captureAllFiles
+      ? !media && !file
+      : !cfg.interceptVideoTypes.includes(ext)
+  )
+    return;
   const rangeTotal = h("content-range").match(/\/(\d+)$/)?.[1];
   const size = Number(rangeTotal) || Number(h("content-length")) || 0;
   if (
+    !cfg.captureAllFiles &&
     size &&
     size < cfg.minFileSizeToCatchKb * 1024 &&
     !["m3u8", "mpd"].includes(ext)
@@ -119,7 +182,7 @@ async function record(details) {
   const data = await chrome.storage.session.get(key);
   let list = data[key] || [];
   list = list.filter((x) => x.url !== details.url);
-  list.push({
+  const item = {
     url: details.url,
     mime,
     ext,
@@ -127,9 +190,20 @@ async function record(details) {
     headers,
     frameId: details.frameId ?? 0,
     timestamp: Date.now(),
-  });
-  list = list.slice(-80);
+    kind: media && !attachment ? "media" : "file",
+    method: request.method || "GET",
+  };
+  list.push(item);
+  list = list.slice(-500);
   await chrome.storage.session.set({ [key]: list });
+  const candidates =
+    (await chrome.storage.session.get("fileCandidates")).fileCandidates || [];
+  await chrome.storage.session.set({
+    fileCandidates: [
+      ...candidates.filter((x) => x.url !== item.url),
+      item,
+    ].slice(-500),
+  });
   try {
     await chrome.action.setBadgeText({
       tabId: details.tabId,
@@ -162,6 +236,154 @@ chrome.tabs.onRemoved.addListener(clearTab);
 chrome.tabs.onUpdated.addListener((id, change) => {
   if (change.status === "loading") clearTab(id);
 });
+const activeTransfers = new Set();
+async function handoffDownload(item, saved) {
+  if (activeTransfers.has(item.id)) return;
+  const url = httpUrl(item.finalUrl || item.url);
+  if (!url || url.startsWith(BASE)) return;
+  const { token, settings: cfg } = await chrome.storage.local.get([
+    "token",
+    "settings",
+  ]);
+  if (
+    !saved &&
+    (!token ||
+      cfg?.interceptBrowserDownloads === false ||
+      (item.danger &&
+        !["safe", "accepted", "allowlistedByPolicy"].includes(item.danger)))
+  )
+    return;
+  activeTransfers.add(item.id);
+  const storageKey = "handoff_" + item.id;
+  let marker = saved,
+    paused = false;
+  try {
+    await registryQueue;
+    const candidates =
+      (await chrome.storage.session.get("fileCandidates")).fileCandidates || [];
+    const captured = candidates.find(
+      (x) => x.url === url || x.url === item.url,
+    );
+    if (!saved && captured?.method && captured.method !== "GET") return;
+    marker ||= {
+      id: item.id,
+      key: `${chrome.runtime.id}:${item.id}:${item.startTime || ""}`,
+      url,
+      filename: (item.filename || "").replaceAll("\\", "/").split("/").pop(),
+      mime: item.mime,
+      headers: {
+        ...(httpUrl(item.referrer) ? { Referer: item.referrer } : {}),
+        "User-Agent": navigator.userAgent,
+        ...captured?.headers,
+      },
+    };
+    await chrome.storage.local.set({ [storageKey]: marker });
+    const [current] = await chrome.downloads.search({ id: item.id });
+    if (
+      !current ||
+      current.state === "complete" ||
+      (current.state === "interrupted" && !marker.cancelStarted)
+    ) {
+      if (marker.prepared)
+        await local("/api/abort-download", "POST", { key: marker.key });
+      await chrome.storage.local.remove(storageKey);
+      return;
+    }
+    if (current.state === "in_progress") {
+      if (!current.paused) await chrome.downloads.pause(item.id);
+      paused = true;
+    }
+    if (!marker.prepared) {
+      await local("/api/import-download", "POST", marker);
+      marker.prepared = true;
+      await chrome.storage.local.set({ [storageKey]: marker });
+    }
+    marker.cancelStarted = true;
+    await chrome.storage.local.set({ [storageKey]: marker });
+    if (current.state === "in_progress") await chrome.downloads.cancel(item.id);
+    await local("/api/confirm-download", "POST", { key: marker.key });
+    await chrome.storage.local.remove(storageKey);
+    await chrome.storage.local.set({ lastInterceptionError: "" });
+  } catch (error) {
+    if (!marker?.cancelStarted) {
+      // A request may have reached the app before the response was lost.
+      if (marker)
+        await local("/api/abort-download", "POST", { key: marker.key }).catch(
+          () => {},
+        );
+      if (paused) await chrome.downloads.resume(item.id).catch(() => {});
+      await chrome.storage.local.remove(storageKey);
+    }
+    await chrome.storage.local.set({ lastInterceptionError: error.message });
+  } finally {
+    activeTransfers.delete(item.id);
+  }
+}
+async function recoverTransfers() {
+  const saved = await chrome.storage.local.get(null);
+  for (const [name, marker] of Object.entries(saved))
+    if (name.startsWith("handoff_") && marker?.id !== undefined)
+      await handoffDownload(marker, marker);
+}
+chrome.downloads?.onCreated.addListener((item) => {
+  void handoffDownload(item).catch(() => {});
+});
+chrome.downloads?.onChanged?.addListener((change) => {
+  if (
+    ["safe", "accepted", "allowlistedByPolicy"].includes(change.danger?.current)
+  )
+    void chrome.downloads
+      .search({ id: change.id })
+      .then(([item]) => {
+        if (item?.state === "in_progress") return handoffDownload(item);
+      })
+      .catch(() => {});
+});
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name === "omnigrab-handoffs")
+    void recoverTransfers().catch(() => {});
+});
+chrome.alarms?.create("omnigrab-handoffs", { periodInMinutes: 1 });
+void recoverTransfers().catch(() => {});
+function createMenus() {
+  chrome.contextMenus?.removeAll(() => {
+    for (const [id, title, contexts] of [
+      [
+        "omnigrab-file",
+        "Скачать файл в OmniGrab",
+        ["link", "image", "audio", "video"],
+      ],
+      [
+        "omnigrab-video",
+        "Скачать видео со страницы в OmniGrab",
+        ["page", "link", "video"],
+      ],
+    ])
+      chrome.contextMenus.create({ id, title, contexts });
+  });
+}
+chrome.runtime.onInstalled?.addListener(createMenus);
+chrome.runtime.onStartup?.addListener(createMenus);
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  const url = httpUrl(info.linkUrl || info.srcUrl || info.pageUrl || tab?.url);
+  if (!url) return;
+  void local("/api/tasks", "POST", {
+    items: [
+      {
+        url,
+        kind: info.menuItemId === "omnigrab-file" ? "file" : "media",
+        headers: {
+          Referer: info.pageUrl || tab?.url || url,
+          "User-Agent": navigator.userAgent,
+        },
+      },
+    ],
+  })
+    .then(() => chrome.storage.local.set({ lastInterceptionError: "" }))
+    .catch((error) =>
+      chrome.storage.local.set({ lastInterceptionError: error.message }),
+    );
+});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     if (message.action === "PAIR") {
@@ -173,6 +395,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
     if (message.action === "GET_SETTINGS")
       return { settings: await settings() };
+    if (message.action === "UPDATE_SETTINGS") {
+      const next = await local("/api/settings", "PUT", {
+        interceptBrowserDownloads:
+          !!message.settings?.interceptBrowserDownloads,
+      });
+      await chrome.storage.local.set({ settings: next });
+      return { settings: next };
+    }
     if (message.action === "GET_TAB_MEDIA") {
       await registryQueue;
       const id = sender.tab?.id ?? message.tabId;
@@ -192,7 +422,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       let captured = media.find((x) => x.url === raw);
       if (message.action === "DOWNLOAD_VIDEO" && !raw) {
         const inFrame = media.filter(
-          (x) => x.frameId === (sender.frameId ?? 0),
+          (x) => x.kind !== "file" && x.frameId === (sender.frameId ?? 0),
         );
         const manifests = inFrame.filter((x) =>
           ["m3u8", "mpd"].includes(x.ext),
@@ -218,6 +448,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         items: [
           {
             url: url.href,
+            kind: message.kind || captured?.kind,
             title: message.title || sender.tab?.title,
             headers: {
               ...(page ? { Referer: page } : {}),

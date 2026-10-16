@@ -118,6 +118,24 @@ try {
     return t?.status === "completed" && t;
   });
   assert.equal(hash(fs.readFileSync(completed.outputPath)), hash(media.bytes));
+  await page
+    .getByRole("button", { name: "Добавить ссылку", exact: true })
+    .first()
+    .click();
+  await page.getByPlaceholder("https://…").fill(media.base + "/report.pdf");
+  await page.getByRole("button", { name: "Распознать", exact: true }).click();
+  await page.getByText("Исходный файл", { exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: "Начать скачивание", exact: true })
+    .click();
+  const pdf = await until(async () => {
+    const t = (await call("/api/state")).tasks.find((t) =>
+      t.url.endsWith("/report.pdf"),
+    );
+    assert.notEqual(t?.status, "error", t?.errorMsg);
+    return t?.status === "completed" && t;
+  });
+  assert.equal(hash(fs.readFileSync(pdf.outputPath)), hash(media.fileBytes));
   // Pairing remains available for the browser extension.
   const pair = await fetch(base + "/api/pair", {
     method: "POST",
@@ -197,7 +215,7 @@ try {
       BrowserWindow.getAllWindows()[0].isVisible(),
     ),
   );
-  assert.equal((await call("/api/state")).tasks.length, 2);
+  assert.equal((await call("/api/state")).tasks.length, 3);
   assert.equal(errors.length, 0, errors.join("\n"));
   // Exit pauses the current process, saves it and really exits the app.
   await call("/api/tasks", "POST", {
@@ -225,7 +243,7 @@ try {
     .getByRole("heading", { name: "Менеджер загрузок" })
     .waitFor();
   const restored = await call("/api/state");
-  assert.equal(restored.tasks.length, 3);
+  assert.equal(restored.tasks.length, 4);
   assert.equal(restored.tasks[0].status, "paused");
   assert.equal(restored.settings.defaultDownloadDir, folder);
   await call("/api/app", "POST", { action: "quit" });

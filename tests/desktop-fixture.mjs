@@ -38,6 +38,9 @@ export async function fixture(temp) {
   ]);
   assert.equal(made.status, 0, made.stderr?.toString());
   const bytes = fs.readFileSync(path.join(temp, "test.mp4"));
+  const fileBytes = Buffer.from(
+    "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n",
+  );
   const slow = Buffer.concat(
     Array.from(
       { length: Math.ceil((4 * 1024 * 1024) / bytes.length) },
@@ -45,10 +48,15 @@ export async function fixture(temp) {
     ),
   );
   const server = http.createServer((req, res) => {
-    const payload = req.url === "/slow.mp4" ? slow : bytes;
+    const payload =
+      req.url === "/report.pdf"
+        ? fileBytes
+        : req.url === "/slow.mp4"
+          ? slow
+          : bytes;
     const start = Number(req.headers.range?.match(/bytes=(\d+)-/)?.[1]) || 0;
     res.writeHead(start ? 206 : 200, {
-      "Content-Type": "video/mp4",
+      "Content-Type": payload === fileBytes ? "application/pdf" : "video/mp4",
       "Content-Length": payload.length - start,
       "Accept-Ranges": "bytes",
       ...(start
@@ -61,8 +69,8 @@ export async function fixture(temp) {
       res.end();
       return;
     }
-    if (payload === bytes) {
-      res.end(bytes);
+    if (payload !== slow) {
+      res.end(payload.subarray(start));
       return;
     }
     let index = start;
@@ -80,6 +88,7 @@ export async function fixture(temp) {
   return {
     server,
     bytes,
+    fileBytes,
     slow,
     base: "http://127.0.0.1:" + server.address().port,
   };

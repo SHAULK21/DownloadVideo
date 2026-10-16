@@ -4,12 +4,15 @@ export interface Settings {
   speedLimitKbps: number;
   autoStartOnDetect: boolean;
   showFloatingButton: boolean;
+  interceptBrowserDownloads: boolean;
+  captureAllFiles: boolean;
   defaultDownloadDir: string;
   soundOnComplete: boolean;
   interceptVideoTypes: string[];
   minFileSizeToCatchKb: number;
 }
 export interface Stream {
+  kind?: "file" | "media";
   id: string;
   url: string;
   title: string;

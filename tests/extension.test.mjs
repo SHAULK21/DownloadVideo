@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
+import { until } from "./desktop-fixture.mjs";
 test("extension registry survives worker restart and clears only the navigated tab", async () => {
   const session = {},
     local = {
@@ -220,6 +221,165 @@ test("extension registry survives worker restart and clears only the navigated t
   removed(7);
   assert.equal((await send({ action: "OPEN_APP" })).ok, true);
   assert.equal(posted.at(-1).action, "show");
+});
+test("browser downloads hand off transactionally, recover after worker restart, and resume on app failure", async () => {
+  const saved = {
+      token: "test",
+      settings: { interceptBrowserDownloads: true },
+    },
+    session = {};
+  const events = [],
+    downloads = new Map();
+  let onCreated,
+    onAlarm,
+    fail = false,
+    message;
+  const storage = (obj) => ({
+    async get(key) {
+      return key === null
+        ? { ...obj }
+        : Object.fromEntries(
+            (Array.isArray(key) ? key : [key]).map((k) => [k, obj[k]]),
+          );
+    },
+    async set(value) {
+      Object.assign(obj, value);
+    },
+    async remove(key) {
+      delete obj[key];
+    },
+  });
+  const chrome = {
+    runtime: {
+      id: "extension-id",
+      onMessage: {
+        addListener(fn) {
+          message = fn;
+        },
+      },
+    },
+    storage: { local: storage(saved), session: storage(session) },
+    webRequest: {
+      onBeforeSendHeaders: { addListener() {} },
+      onErrorOccurred: { addListener() {} },
+      onHeadersReceived: { addListener() {} },
+    },
+    tabs: { onRemoved: { addListener() {} }, onUpdated: { addListener() {} } },
+    action: { async setBadgeText() {}, async setBadgeBackgroundColor() {} },
+    downloads: {
+      onCreated: {
+        addListener(fn) {
+          onCreated = fn;
+        },
+      },
+      async search({ id }) {
+        return downloads.has(id) ? [downloads.get(id)] : [];
+      },
+      async pause(id) {
+        events.push("pause:" + id);
+        downloads.get(id).paused = true;
+      },
+      async cancel(id) {
+        events.push("cancel:" + id);
+        Object.assign(downloads.get(id), {
+          state: "interrupted",
+          error: "USER_CANCELED",
+        });
+      },
+      async resume(id) {
+        events.push("resume:" + id);
+        downloads.get(id).paused = false;
+      },
+    },
+    alarms: {
+      onAlarm: {
+        addListener(fn) {
+          onAlarm = fn;
+        },
+      },
+      create() {},
+    },
+  };
+  const source = fs.readFileSync("extension/background.js", "utf8");
+  const run = () =>
+    vm.runInNewContext(source, {
+      chrome,
+      URL,
+      console,
+      AbortSignal,
+      navigator: { userAgent: "test" },
+      fetch: async (url, init) => {
+        const endpoint = new URL(url).pathname;
+        events.push(endpoint);
+        if (fail && endpoint === "/api/import-download") throw Error("offline");
+        return {
+          ok: true,
+          async json() {
+            return endpoint === "/api/import-download"
+              ? { id: "native-file" }
+              : {};
+          },
+        };
+      },
+    });
+  run();
+  const item = (id) => ({
+    id,
+    url: "https://files.test/archive.zip",
+    filename: "C:\\Downloads\\archive.zip",
+    mime: "application/zip",
+    state: "in_progress",
+    danger: "safe",
+    startTime: "time" + id,
+    referrer: "https://page.test/",
+  });
+  downloads.set(1, item(1));
+  onCreated(downloads.get(1));
+  await until(
+    () => events.includes("/api/confirm-download") && !saved.handoff_1,
+  );
+  assert.ok(events.indexOf("pause:1") < events.indexOf("/api/import-download"));
+  assert.ok(
+    events.indexOf("/api/import-download") < events.indexOf("cancel:1"),
+  );
+  assert.ok(
+    events.indexOf("cancel:1") < events.indexOf("/api/confirm-download"),
+  );
+  fail = true;
+  events.length = 0;
+  downloads.set(2, item(2));
+  onCreated(downloads.get(2));
+  await until(() => events.includes("resume:2"));
+  assert.equal(events.includes("cancel:2"), false);
+  fail = false;
+  events.length = 0;
+  saved.handoff_3 = {
+    id: 3,
+    key: "saved:3",
+    url: "https://files.test/third.pdf",
+    prepared: true,
+    cancelStarted: true,
+  };
+  downloads.set(3, {
+    ...item(3),
+    state: "interrupted",
+    error: "USER_CANCELED",
+  });
+  run();
+  await until(
+    () => events.includes("/api/confirm-download") && !saved.handoff_3,
+  );
+  assert.equal(
+    events.includes("/api/import-download"),
+    false,
+    "Recover confirmation without duplicating task",
+  );
+  saved.settings.interceptBrowserDownloads = false;
+  events.length = 0;
+  downloads.set(4, item(4));
+  onCreated(downloads.get(4));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(events.length, 0);
 });
 test("floating button follows the source, fades/hides, drags without downloading and remembers position", async () => {
   const dom = new JSDOM("<html><body><video></video></body></html>", {

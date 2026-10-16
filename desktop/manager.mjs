@@ -5,6 +5,12 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import readline from "node:readline";
+import {
+  probeFile,
+  ordinaryFile,
+  downloadFile,
+  openFile,
+} from "./http-file.mjs";
 
 export const DEFAULTS = {
   maxThreads: 4,
@@ -12,6 +18,8 @@ export const DEFAULTS = {
   speedLimitKbps: 0,
   autoStartOnDetect: true,
   showFloatingButton: true,
+  interceptBrowserDownloads: true,
+  captureAllFiles: true,
   defaultDownloadDir: path.join(os.homedir(), "Downloads", "OmniGrab"),
   soundOnComplete: true,
   interceptVideoTypes: [
@@ -25,7 +33,7 @@ export const DEFAULTS = {
     "mov",
     "mkv",
   ],
-  minFileSizeToCatchKb: 512,
+  minFileSizeToCatchKb: 0,
 };
 export function httpUrl(value) {
   if (typeof value !== "string" || value.length > 16384)
@@ -110,9 +118,13 @@ function settingsFrom(input, previous = DEFAULTS) {
     minFileSizeToCatchKb: n("minFileSizeToCatchKb", 0, 1048576),
     defaultDownloadDir: dir,
     ...Object.fromEntries(
-      ["autoStartOnDetect", "showFloatingButton", "soundOnComplete"].map(
-        (k) => [k, typeof input[k] === "boolean" ? input[k] : previous[k]],
-      ),
+      [
+        "autoStartOnDetect",
+        "showFloatingButton",
+        "soundOnComplete",
+        "interceptBrowserDownloads",
+        "captureAllFiles",
+      ].map((k) => [k, typeof input[k] === "boolean" ? input[k] : previous[k]]),
     ),
     interceptVideoTypes: Array.isArray(input.interceptVideoTypes)
       ? [
@@ -141,6 +153,7 @@ export class DownloadManager extends EventEmitter {
     this.spawnProcess = spawnProcess;
     this.pluginDir = pluginDir;
     this.running = new Map();
+    this.preparedFiles = new Map();
     this.analyzers = new Set();
     this.closing = false;
     this.lastSave = 0;
@@ -217,7 +230,7 @@ export class DownloadManager extends EventEmitter {
   }
   publicState() {
     return {
-      version: "3.2.0",
+      version: "3.3.0",
       settings: this.settings,
       tasks: this.tasks.map(({ headers, ...t }) => t),
       warning: this.loadWarning || null,
@@ -225,6 +238,28 @@ export class DownloadManager extends EventEmitter {
   }
   async analyze(url, headers = {}, playlist = false, signal) {
     url = httpUrl(url);
+    if (!playlist) {
+      try {
+        const meta = await probeFile(url, cleanHeaders(headers), signal, true);
+        if (ordinaryFile(meta))
+          return [
+            {
+              id: "file",
+              kind: "file",
+              url,
+              title: safeName(meta.filename),
+              format: path.extname(meta.filename).slice(1) || "file",
+              quality: "Исходный файл",
+              category: category(meta.filename),
+              filesize: meta.size,
+              hasAudio: false,
+              hasVideo: false,
+            },
+          ];
+      } catch (error) {
+        signal?.throwIfAborted();
+      }
+    }
     if (this.analyzers.size >= 3)
       throw Error("Уже идёт анализ других ссылок. Дождитесь результата.");
     const args = [
@@ -362,6 +397,10 @@ export class DownloadManager extends EventEmitter {
     ];
   }
   stopProcess(child) {
+    if (child.abort) {
+      child.abort();
+      return;
+    }
     if (!child.pid) return;
     if (process.platform === "win32") {
       // PyInstaller and FFmpeg may be descendants of the spawned process.
@@ -441,15 +480,36 @@ export class DownloadManager extends EventEmitter {
         throw Error("Неверный идентификатор формата.");
       const dir = item.saveFolder || this.settings.defaultDownloadDir;
       if (!path.isAbsolute(dir)) throw Error("Укажите полный путь к папке.");
+      const kind =
+        item.kind === "file" ||
+        formatId === "file" ||
+        ["compressed", "documents", "programs"].includes(category(url))
+          ? "file"
+          : "media";
       return {
         id: randomUUID(),
         url,
+        kind,
+        suggestedFilename:
+          typeof item.filename === "string"
+            ? safeName(item.filename.replaceAll("\\", "/").split("/").pop())
+            : null,
         title: safeName(item.title || ""),
         filename: item.title
           ? safeName(item.title)
           : "Определяется при скачивании",
-        format: item.format || "AUTO",
-        quality: item.quality || "Лучшее доступное",
+        format:
+          item.format ||
+          (kind === "file"
+            ? path
+                .extname(item.filename || new URL(url).pathname)
+                .slice(1)
+                .toUpperCase() || "FILE"
+            : "AUTO"),
+        quality: item.handoff
+          ? "Передача из браузера"
+          : item.quality ||
+            (kind === "file" ? "Исходный файл" : "Лучшее доступное"),
         formatId,
         hasAudio: item.hasAudio !== false,
         hasVideo: item.hasVideo !== false,
@@ -458,7 +518,13 @@ export class DownloadManager extends EventEmitter {
         downloadedBytes: 0,
         speed: 0,
         eta: 0,
-        status: this.settings.autoStartOnDetect ? "queued" : "paused",
+        status: item.handoff
+          ? "paused"
+          : this.settings.autoStartOnDetect
+            ? "queued"
+            : "paused",
+        handoffKey: item.handoffKey || null,
+        handoffPending: item.handoff === true,
         threads: this.settings.maxThreads,
         segments: [],
         saveFolder: dir,
@@ -503,6 +569,10 @@ export class DownloadManager extends EventEmitter {
       t.status = "error";
       t.errorMsg = "Не удалось создать папку: " + e.message;
       this.changed(true);
+      return;
+    }
+    if (t.kind === "file") {
+      this.startFile(t);
       return;
     }
     if (!t.outputTemplate)
@@ -633,6 +703,124 @@ export class DownloadManager extends EventEmitter {
     });
     this.changed(true);
   }
+  startFile(t) {
+    const prepared = this.preparedFiles.get(t.id);
+    if (prepared) {
+      clearTimeout(prepared.timer);
+      this.preparedFiles.delete(t.id);
+    }
+    const controller = new AbortController();
+    const child = new EventEmitter();
+    child.abort = () => controller.abort();
+    const run = { child, stopping: false, requeue: false };
+    this.running.set(t.id, run);
+    this.changed(true);
+    void downloadFile({
+      response: prepared?.response,
+      task: t,
+      headers: cleanHeaders(t.headers),
+      signal: controller.signal,
+      sanitize: safeName,
+      rate: () =>
+        this.settings.speedLimitKbps
+          ? (this.settings.speedLimitKbps * 1024) /
+            this.settings.maxConcurrentDownloads
+          : 0,
+      progress: (bytes, total, speed) => {
+        t.downloadedBytes = bytes;
+        t.totalBytes = total;
+        t.speed = speed;
+        t.eta = total && speed ? (total - bytes) / speed : 0;
+        this.changed();
+      },
+    })
+      .then((output) => {
+        t.outputPath = output;
+        t.filename = path.basename(output);
+        t.category = category(t.filename);
+        if (t.category === "video" && !/^video\//i.test(t.mimeType))
+          t.category = "other";
+      })
+      .catch((error) => {
+        run.error = error.message;
+      })
+      .finally(() => {
+        this.running.delete(t.id);
+        t.speed = 0;
+        t.eta = 0;
+        if (!run.deleted) {
+          if (run.stopping) t.status = run.requeue ? "queued" : "paused";
+          else if (!run.error && t.outputPath) {
+            t.status = "completed";
+            t.totalBytes = t.downloadedBytes;
+            t.completedAt = Date.now();
+          } else {
+            t.status = "error";
+            t.errorMsg = run.error || "Не удалось сохранить файл.";
+          }
+        }
+        this.changed(true);
+        child.emit("close", run.error ? 1 : 0);
+        this.schedule();
+      });
+  }
+  async importDownload(input, signal) {
+    const url = httpUrl(input.url),
+      headers = cleanHeaders(input.headers);
+    if (typeof input.key !== "string" || !input.key || input.key.length > 200)
+      throw Error("Не указан идентификатор передачи.");
+    const existing = this.tasks.find((t) => t.handoffKey === input.key);
+    if (existing) return { id: existing.id };
+    const opened = await openFile(url, headers);
+    const meta = opened.meta;
+    if (signal?.aborted) {
+      await opened.response.body?.cancel();
+      signal.throwIfAborted();
+    }
+    const prepared = this.tasks.find((t) => t.handoffKey === input.key);
+    if (prepared) {
+      await opened.response.body?.cancel();
+      return { id: prepared.id };
+    }
+    if (
+      !/html/i.test(input.mime || "") &&
+      /(?:text\/html|application\/xhtml)/i.test(meta.mime)
+    ) {
+      await opened.response.body?.cancel();
+      throw Error(
+        "Источник вернул страницу входа вместо файла. Загрузка продолжится в браузере.",
+      );
+    }
+    const ids = this.add([
+      {
+        url,
+        headers,
+        kind: "file",
+        handoff: true,
+        handoffKey: input.key,
+        filename: input.filename || meta.filename,
+        filesize: meta.size,
+      },
+    ]);
+    const timer = setTimeout(() => {
+      void opened.response.body?.cancel().catch(() => {});
+      this.preparedFiles.delete(ids[0]);
+    }, 300000);
+    this.preparedFiles.set(ids[0], { response: opened.response, timer });
+    return { id: ids[0] };
+  }
+  finishImport(key, cancel = false) {
+    const task = this.tasks.find((t) => t.handoffKey === key);
+    if (!task) throw Error("Передача не найдена.");
+    if (cancel) {
+      if (task.handoffPending) this.control(task.id, "delete");
+    } else if (task.handoffPending) {
+      task.handoffPending = false;
+      task.quality = "Исходный файл";
+      this.control(task.id, "resume");
+    }
+    return { id: task.id };
+  }
   handleLine(t, line, run) {
     if (line.startsWith("OG_PROGRESS:")) {
       try {
@@ -684,6 +872,7 @@ export class DownloadManager extends EventEmitter {
         this.stopProcess(run.child);
       } else if (t.status === "queued") t.status = "paused";
     } else if (action === "resume") {
+      t.handoffPending = false;
       if (run) {
         if (run.stopping) run.requeue = true;
       } else if (t.status !== "completed") {
@@ -691,6 +880,12 @@ export class DownloadManager extends EventEmitter {
         t.errorMsg = undefined;
       }
     } else if (action === "delete") {
+      const prepared = this.preparedFiles.get(id);
+      if (prepared) {
+        clearTimeout(prepared.timer);
+        void prepared.response.body?.cancel().catch(() => {});
+        this.preparedFiles.delete(id);
+      }
       if (run) {
         run.deleted = true;
         run.stopping = true;
@@ -724,6 +919,11 @@ export class DownloadManager extends EventEmitter {
   }
   async shutdown() {
     this.closing = true;
+    for (const prepared of this.preparedFiles.values()) {
+      clearTimeout(prepared.timer);
+      await prepared.response.body?.cancel().catch(() => {});
+    }
+    this.preparedFiles.clear();
     for (const child of this.analyzers) this.stopProcess(child);
     const closed = [...this.running.values()].map(
       (run) =>

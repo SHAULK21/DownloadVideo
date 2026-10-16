@@ -46,6 +46,8 @@ async function refresh() {
       status("Введите код из программы.", true);
     } else {
       const state = await r.json();
+      $("intercept").checked =
+        state.settings.interceptBrowserDownloads !== false;
       await chrome.storage.local.set({ settings: state.settings });
       status("Подключено к загрузчику на этом ПК.");
     }
@@ -57,7 +59,7 @@ async function refresh() {
   if (!result.media?.length) {
     const p = document.createElement("p");
     p.textContent =
-      "Потоки пока не найдены. Включите видео или отправьте адрес страницы.";
+      "Файлы пока не найдены. Начните загрузку в браузере, включите видео или используйте меню ссылки.";
     $("list").append(p);
   }
   for (const item of result.media || []) {
@@ -96,6 +98,13 @@ $("refresh").addEventListener("click", () =>
   refresh().catch((e) => status(e.message, true)),
 );
 refresh().catch((e) => status(e.message, true));
+$("intercept").addEventListener("change", async () => {
+  const r = await send({
+    action: "UPDATE_SETTINGS",
+    settings: { interceptBrowserDownloads: $("intercept").checked },
+  });
+  if (r.error) status(r.error, true);
+});
 $("open-app").addEventListener("click", async () => {
   const r = await send({ action: "OPEN_APP" });
   if (r.error) status(r.error, true);

@@ -7,7 +7,7 @@
   </head>
   <body>
     <header>
-      <strong>OmniGrab</strong><small>3.1 · загрузчик для ПК</small>
+      <strong>OmniGrab</strong><small>3.3 · любые файлы на ПК</small>
     </header>
     <div id="status" role="status">Подключение…</div>
     <section id="pair" hidden>
@@ -29,7 +29,17 @@
       <button id="page" class="primary">Скачать видео со страницы</button>
       <p class="muted">Используйте для YouTube и плееров с blob-адресом.</p>
     </section>
-    <h2>Найденные потоки</h2>
+    <section>
+      <label
+        ><input id="intercept" type="checkbox" />Перехватывать загрузки
+        браузера</label
+      >
+      <p class="muted">
+        Ссылку на любой файл также можно отправить через правую кнопку мыши →
+        OmniGrab.
+      </p>
+    </section>
+    <h2>Найденные файлы и потоки</h2>
     <div id="list"></div>
     <footer>
       <button id="open-app">Открыть программу</button>
