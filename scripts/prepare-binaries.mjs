@@ -49,4 +49,10 @@ for (const name of ["ffmpeg.exe", "ffprobe.exe"]) {
   );
 }
 console.log("Windows tools ready.");
-fs.copyFileSync("release/node-win.exe", "release/node.exe");
+if (
+  !fs.existsSync("release/node.exe") ||
+  hash(fs.readFileSync("release/node.exe")) !== files[0][2]
+) {
+  // PATH may already point at this executable on repeated preparation.
+  fs.copyFileSync("release/node-win.exe", "release/node.exe");
+}

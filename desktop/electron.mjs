@@ -114,6 +114,7 @@ function openLicenses() {
   void licenses.loadURL(origin + "/THIRD_PARTY_NOTICES.txt");
 }
 async function openFolder(dir) {
+  fs.mkdirSync(dir, { recursive: true });
   const error = await shell.openPath(dir);
   if (error) throw Error(error);
 }
