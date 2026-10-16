@@ -5,6 +5,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { _electron as electron } from "playwright-core";
+import JSZip from "jszip";
+import {
+  checkFloatingButton,
+  overlayHTML,
+} from "./extension-browser-fixture.mjs";
 import {
   fixture,
   freePort,
@@ -68,6 +73,26 @@ try {
   assert.equal(await page.evaluate(() => typeof window.require), "undefined");
   assert.equal(await page.evaluate(() => typeof window.process), "undefined");
   await page.screenshot({ path: "release/desktop-smoke.png" });
+  const nextWindow = application.waitForEvent("window");
+  await application.evaluate(async ({ BrowserWindow }, html) => {
+    const preview = new BrowserWindow({
+      width: 900,
+      height: 650,
+      webPreferences: { sandbox: true, contextIsolation: true },
+    });
+    await preview.loadURL(
+      "data:text/html;charset=utf-8," + encodeURIComponent(html),
+    );
+  }, overlayHTML);
+  const overlayPage = await nextWindow;
+  const extension = await JSZip.loadAsync(
+    fs.readFileSync("release/OmniGrab-Extension.zip"),
+  );
+  await checkFloatingButton(
+    overlayPage,
+    await extension.file("content.js").async("string"),
+  );
+  await overlayPage.close();
   // Native folder picker is reached through the same UI API.
   const folder = path.join(temp, "downloads");
   fs.mkdirSync(folder);
@@ -207,7 +232,7 @@ try {
   await until(() => nativeProcess.exitCode !== null);
   application = null;
   console.log(
-    "Desktop smoke passed: GUI executable, actual window, renderer isolation, native dialogs, real downloads, tray close/background download, extension pairing, second instance, graceful exit and restart.",
+    "Desktop smoke passed: GUI executable, actual window, renderer isolation, extension ZIP overlay mouse drag/fade/hide/click-through, native dialogs, real downloads, tray close/background download, extension pairing, second instance, graceful exit and restart.",
   );
 } catch (error) {
   const log = path.join(dataDir, "error.log");

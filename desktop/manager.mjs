@@ -217,7 +217,7 @@ export class DownloadManager extends EventEmitter {
   }
   publicState() {
     return {
-      version: "3.1.1",
+      version: "3.2.0",
       settings: this.settings,
       tasks: this.tasks.map(({ headers, ...t }) => t),
       warning: this.loadWarning || null,
@@ -345,6 +345,9 @@ export class DownloadManager extends EventEmitter {
     return [
       "--encoding",
       "utf-8",
+      // Try the actual source instead of rejecting an entire domain by label.
+      "--use-extractors",
+      "default,-piracy,-liability,-drm",
       "--no-plugin-dirs",
       "--plugin-dirs",
       this.pluginDir,

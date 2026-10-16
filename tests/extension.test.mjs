@@ -221,7 +221,7 @@ test("extension registry survives worker restart and clears only the navigated t
   assert.equal((await send({ action: "OPEN_APP" })).ok, true);
   assert.equal(posted.at(-1).action, "show");
 });
-test("floating button attaches to late source and sends the current source", async () => {
+test("floating button follows the source, fades/hides, drags without downloading and remembers position", async () => {
   const dom = new JSDOM("<html><body><video></video></body></html>", {
     url: "https://page.test/watch",
     runScripts: "outside-only",
@@ -230,6 +230,16 @@ test("floating button attaches to late source and sends the current source", asy
   const w = dom.window;
   const messages = [];
   const shadows = [];
+  let idle, storageChanged;
+  const stored = {};
+  const realTimeout = w.setTimeout.bind(w);
+  w.setTimeout = (fn, delay, ...args) => {
+    if (delay === 2200) {
+      idle = fn;
+      return -1;
+    }
+    return realTimeout(fn, delay, ...args);
+  };
   const original = w.HTMLElement.prototype.attachShadow;
   w.HTMLElement.prototype.attachShadow = function (options) {
     const shadow = original.call(this, options);
@@ -257,7 +267,21 @@ test("floating button attaches to late source and sends the current source", asy
         );
       },
     },
-    storage: { onChanged: { addListener() {} } },
+    storage: {
+      local: {
+        async get() {
+          return stored;
+        },
+        async set(value) {
+          Object.assign(stored, value);
+        },
+      },
+      onChanged: {
+        addListener(fn) {
+          storageChanged = fn;
+        },
+      },
+    },
   };
   w.eval(fs.readFileSync("extension/content.js", "utf8"));
   const v = w.document.querySelector("video");
@@ -267,11 +291,81 @@ test("floating button attaches to late source and sends the current source", asy
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(shadows.length, 1);
   v.src = "https://cdn.test/second.mp4";
-  shadows[0].querySelector("button").click();
+  shadows[0].querySelector(".download").click();
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(
     messages.find((m) => m.action === "DOWNLOAD_VIDEO").url,
     "https://cdn.test/second.mp4",
   );
+  const host = w.document.querySelector("[data-omnigrab-button]");
+  const pointer = (target, type, x, y) => {
+    const event = new w.MouseEvent(type, {
+      bubbles: true,
+      composed: true,
+      button: 0,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    target.dispatchEvent(event);
+  };
+  let paused = false;
+  Object.defineProperty(v, "paused", { get: () => paused });
+  v.dispatchEvent(new w.Event("play"));
+  idle();
+  assert.equal(host.style.opacity, "0");
+  assert.equal(
+    host.style.pointerEvents,
+    "none",
+    "hidden overlay must not intercept player clicks",
+  );
+  pointer(w.document, "pointermove", 300, 200);
+  assert.ok(Number(host.style.opacity) > 0);
+  host.dispatchEvent(new w.Event("pointerenter"));
+  idle();
+  assert.equal(host.style.opacity, "1");
+  host.dispatchEvent(new w.Event("pointerleave"));
+  idle();
+  assert.equal(host.style.opacity, "0");
+  paused = true;
+  v.dispatchEvent(new w.Event("pause"));
+  idle();
+  assert.ok(Number(host.style.opacity) > 0 && Number(host.style.opacity) < 0.4);
+  const handle = shadows[0].querySelector(".drag");
+  pointer(handle, "pointerdown", 10, 10);
+  pointer(w.document, "pointermove", 600, 300);
+  pointer(w.document, "pointerup", 600, 300);
+  assert.ok(stored.floatingButtonPosition.x > 0.5);
+  assert.ok(stored.floatingButtonPosition.y > 0.5);
+  assert.equal(messages.filter((m) => m.action === "DOWNLOAD_VIDEO").length, 1);
+  handle.dispatchEvent(
+    new w.KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+  );
+  assert.equal(stored.floatingButtonPosition.x, 0);
+  storageChanged({ floatingButtonPosition: { newValue: { x: 1, y: 1 } } });
+  w.innerWidth = 320;
+  w.innerHeight = 200;
+  w.dispatchEvent(new w.Event("resize"));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(
+    parseFloat(host.style.left) >= 4 && parseFloat(host.style.left) <= 56,
+  );
+  assert.ok(
+    parseFloat(host.style.top) >= 4 && parseFloat(host.style.top) <= 162,
+  );
+  Object.defineProperty(w.document, "fullscreenElement", {
+    value: w.document.body,
+    configurable: true,
+  });
+  w.document.dispatchEvent(new w.Event("fullscreenchange"));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(host.parentNode, w.document.body);
+  shadows[0].querySelector(".hide").click();
+  w.dispatchEvent(new w.Event("resize"));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(host.style.display, "none");
+  v.remove();
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(host.isConnected, false);
   dom.window.close();
 });

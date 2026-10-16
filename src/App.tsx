@@ -614,7 +614,7 @@ export default function App() {
         <button className="brand" onClick={() => setTab("downloads")}>
           <img src={icon} alt="" />
           <span>
-            OmniGrab <small>3.1.1</small>
+            OmniGrab <small>3.2.0</small>
           </span>
         </button>
         <nav className={mobileMenu ? "open" : ""}>
@@ -1111,9 +1111,9 @@ export default function App() {
                 используйте «Распознать» в программе.
               </p>
               <p className="muted">
-                Для blob-плеера отправляется адрес страницы. DRM не
-                поддерживается. Некоторые сайты требуют вход или ограничивают
-                загрузку.
+                Кнопка скрывается во время просмотра и возвращается при движении
+                мыши над видео. Перетащите её за ⠿ слева или уберите крестиком
+                справа. Её положение запоминается.
               </p>
             </div>
           </div>
@@ -1123,7 +1123,7 @@ export default function App() {
         <span>
           {state?.desktop
             ? "Закрытие окна сворачивает в трей · загрузки продолжаются"
-            : "OmniGrab 3.1 · Загрузчик для ПК"}
+            : "OmniGrab 3.2 · Загрузчик для ПК"}
         </span>
         {state?.desktop && (
           <button
