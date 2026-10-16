@@ -25,6 +25,7 @@ const env = {
   OMNIGRAB_PORT: String(port),
 };
 let application;
+let nativeProcess;
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 try {
   application = await electron.launch({
@@ -33,6 +34,7 @@ try {
     args: ["--disable-gpu"],
     timeout: 90000,
   });
+  nativeProcess = application.process();
   const page = await application.firstWindow();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -177,7 +179,7 @@ try {
     async () => (await call("/api/state")).tasks[0].downloadedBytes > 0,
   );
   await call("/api/app", "POST", { action: "quit" });
-  await until(() => application.process().exitCode !== null);
+  await until(() => nativeProcess.exitCode !== null);
   const saved = JSON.parse(
     fs.readFileSync(path.join(dataDir, "state.json"), "utf8"),
   );
@@ -188,6 +190,7 @@ try {
     args: ["--disable-gpu"],
     timeout: 90000,
   });
+  nativeProcess = application.process();
   await (
     await application.firstWindow()
   )
@@ -198,7 +201,7 @@ try {
   assert.equal(restored.tasks[0].status, "paused");
   assert.equal(restored.settings.defaultDownloadDir, folder);
   await call("/api/app", "POST", { action: "quit" });
-  await until(() => application.process().exitCode !== null);
+  await until(() => nativeProcess.exitCode !== null);
   application = null;
   console.log(
     "Desktop smoke passed: GUI executable, actual window, renderer isolation, native dialogs, real downloads, tray close/background download, extension pairing, second instance, graceful exit and restart.",
