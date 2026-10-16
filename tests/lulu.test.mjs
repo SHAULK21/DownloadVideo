@@ -94,6 +94,8 @@ test("Lulu packed player: plugin loading, HLS Referer, real download and downloa
         process.env.OMNIGRAB_YTDLP || "yt-dlp",
         [
           "--ignore-config",
+          "--encoding",
+          "utf-8",
           "--no-plugin-dirs",
           "--plugin-dirs",
           path.resolve("plugins"),

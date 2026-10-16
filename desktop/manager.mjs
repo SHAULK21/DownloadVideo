@@ -343,6 +343,8 @@ export class DownloadManager extends EventEmitter {
   }
   headerArgs(headers) {
     return [
+      "--encoding",
+      "utf-8",
       "--no-plugin-dirs",
       "--plugin-dirs",
       this.pluginDir,

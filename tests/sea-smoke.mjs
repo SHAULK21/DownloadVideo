@@ -115,6 +115,8 @@ try {
       path.join(temp, "state", "tools", "3.0.0", "yt-dlp.exe"),
       [
         "--ignore-config",
+        "--encoding",
+        "utf-8",
         "--no-plugin-dirs",
         "--plugin-dirs",
         pluginDir,
