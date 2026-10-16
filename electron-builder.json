@@ -1,0 +1,24 @@
+{
+  "appId": "com.omnigrab.desktop",
+  "productName": "OmniGrab",
+  "electronVersion": "44.8.0",
+  "directories": {
+    "app": "release/desktop-app",
+    "output": "release/desktop-build",
+    "buildResources": "desktop/assets"
+  },
+  "files": ["**/*"],
+  "extraResources": [{ "from": "release/desktop-resources", "to": "." }],
+  "asar": true,
+  "compression": "normal",
+  "win": {
+    "target": [{ "target": "portable", "arch": ["x64"] }],
+    "executableName": "OmniGrab",
+    "icon": "desktop/assets/icon.ico"
+  },
+  "portable": {
+    "artifactName": "OmniGrab.exe",
+    "unpackDirName": true,
+    "requestExecutionLevel": "user"
+  }
+}

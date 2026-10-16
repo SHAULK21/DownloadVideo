@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "OmniGrab — отправить видео на ПК",
+  "version": "3.3.0",
+  "description": "Находит медиапотоки и передаёт их в запущенный OmniGrab для Windows.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "webRequest",
+    "downloads",
+    "contextMenus",
+    "alarms"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "OmniGrab"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

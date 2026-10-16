@@ -1,7 +1,10 @@
 node_modules/
 build/
 dist/
+release/
 coverage/
+__pycache__/
+*.pyc
 .DS_Store
 *.log
 .env*

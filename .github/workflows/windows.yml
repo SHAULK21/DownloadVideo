@@ -1,0 +1,44 @@
+name: Windows build and downloads
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci
+      - run: node scripts/prepare-binaries.mjs
+      - name: Add download tools to PATH
+        shell: pwsh
+        run: '"$pwd\release" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+      - run: npm run lint
+      - run: npm test
+        env:
+          OMNIGRAB_YTDLP: yt-dlp.exe
+      - run: npm run build && node scripts/build-windows.mjs --dir
+      - run: node tests/desktop-smoke.mjs release/desktop-build/win-unpacked/OmniGrab.exe
+      - run: node node_modules/playwright-core/cli.js install chromium
+      - run: node tests/download-interception-smoke.mjs
+      - run: node scripts/build-windows.mjs --prepackaged
+      - run: node tests/portable-smoke.mjs release/OmniGrab.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniGrab-Windows-x64
+          path: |
+            release/OmniGrab.exe
+            release/OmniGrab-Extension.zip
+            README-Windows.txt
+            THIRD_PARTY_NOTICES.txt
+            release/SHA256SUMS.txt
+            release/desktop-smoke.png
+          retention-days: 14
