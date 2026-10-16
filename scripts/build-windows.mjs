@@ -44,6 +44,7 @@ await build({
 const assets = {};
 function walk(dir, prefix) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "__pycache__" || entry.name.endsWith(".pyc")) continue;
     const file = path.join(dir, entry.name),
       key = prefix + entry.name;
     if (entry.isDirectory()) walk(file, key + "/");
@@ -51,6 +52,7 @@ function walk(dir, prefix) {
   }
 }
 walk(path.join(ROOT, "dist"), "web/");
+walk(path.join(ROOT, "plugins"), "plugins/");
 for (const name of ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "node.exe"]) {
   const input = path.join(release, name === "node.exe" ? "node-win.exe" : name);
   const compressed = path.join(release, name + ".gz");
@@ -108,7 +110,7 @@ await inject(
   { sentinelFuse: "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2" },
 );
 const buildInfo = {
-  version: "3.0.0",
+  version: "3.0.1",
   platform: "win32-x64",
   node: "24.19.0",
   ytDlp: "2026.08.19",

@@ -9,7 +9,9 @@ test("extension registry survives worker restart and clears only the navigated t
       token: "test",
       settings: { minFileSizeToCatchKb: 0, interceptVideoTypes: ["mp4"] },
     };
-  let headers, message, updated, removed;
+  let headers, message, updated, removed, outgoing;
+  let offline = true;
+  const posted = [];
   const storage = (obj) => ({
     async get(key) {
       return Object.fromEntries(
@@ -26,6 +28,12 @@ test("extension registry survives worker restart and clears only the navigated t
   const chrome = {
     storage: { local: storage(local), session: storage(session) },
     webRequest: {
+      onBeforeSendHeaders: {
+        addListener(fn) {
+          outgoing = fn;
+        },
+      },
+      onErrorOccurred: { addListener() {} },
       onHeadersReceived: {
         addListener(fn) {
           headers = fn;
@@ -61,11 +69,18 @@ test("extension registry survives worker restart and clears only the navigated t
       console,
       AbortSignal,
       navigator: { userAgent: "test" },
-      fetch: async () => {
-        throw Error("offline");
+      fetch: async (_url, init) => {
+        if (offline) throw Error("offline");
+        posted.push(JSON.parse(init.body));
+        return {
+          ok: true,
+          async json() {
+            return { ids: ["task-id"] };
+          },
+        };
       },
     });
-  const send = (m) => new Promise((r) => message(m, {}, r));
+  const send = (m, sender = {}) => new Promise((r) => message(m, sender, r));
   run();
   headers({
     tabId: 7,
@@ -97,6 +112,111 @@ test("extension registry survives worker restart and clears only the navigated t
   });
   assert.ok(result.error);
   assert.equal(result.ok, undefined);
+  offline = false;
+  // A popup's sender.url is chrome-extension://, never the media Referer.
+  await send(
+    {
+      action: "DOWNLOAD",
+      url: "https://cdn.test/file.mp4",
+      pageUrl: "https://page.test/watch",
+      tabId: 7,
+    },
+    { url: "chrome-extension://test/popup.html" },
+  );
+  assert.equal(
+    posted.at(-1).items[0].headers.Referer,
+    "https://page.test/watch",
+  );
+  // A range response with a generic MIME must still be captured.
+  headers({
+    tabId: 7,
+    frameId: 2,
+    requestId: "range",
+    url: "https://cdn.test/file.mp4",
+    responseHeaders: [
+      { name: "Content-Type", value: "application/octet-stream" },
+      { name: "Content-Length", value: "10" },
+      { name: "Content-Range", value: "bytes 0-9/5000000" },
+    ],
+  });
+  assert.equal(
+    (await send({ action: "GET_TAB_MEDIA", tabId: 7 })).media.length,
+    1,
+  );
+  local.settings.interceptVideoTypes.push("m3u8");
+  outgoing({
+    tabId: 7,
+    requestId: "hls",
+    url: "https://cdn.test/master.m3u8",
+    requestHeaders: [
+      { name: "Referer", value: "https://player.test/e/video" },
+      { name: "Origin", value: "https://player.test" },
+      { name: "Cookie", value: "must-not-be-copied" },
+    ],
+  });
+  headers({
+    tabId: 7,
+    frameId: 2,
+    requestId: "hls",
+    url: "https://cdn.test/master.m3u8",
+    responseHeaders: [
+      { name: "Content-Type", value: "application/vnd.apple.mpegurl" },
+    ],
+  });
+  headers({
+    tabId: 7,
+    frameId: 2,
+    url: "https://cdn.test/chunk.m4s",
+    responseHeaders: [{ name: "Content-Type", value: "video/mp4" }],
+  });
+  const blob = await send(
+    {
+      action: "DOWNLOAD_VIDEO",
+      url: "blob:https://player.test/id",
+      pageUrl: "https://player.test/e/video",
+    },
+    {
+      tab: { id: 7, url: "https://top.test/" },
+      url: "https://player.test/e/video",
+      frameId: 2,
+    },
+  );
+  assert.equal(blob.ok, true);
+  assert.equal(posted.at(-1).items[0].url, "https://cdn.test/master.m3u8");
+  assert.equal(
+    posted.at(-1).items[0].headers.Referer,
+    "https://player.test/e/video",
+  );
+  assert.equal(posted.at(-1).items[0].headers.Origin, "https://player.test");
+  assert.equal(posted.at(-1).items[0].headers.Cookie, undefined);
+  assert.equal(
+    (await send({ action: "GET_TAB_MEDIA", tabId: 7 })).media.length,
+    2,
+  );
+  // Popup downloads must also use the captured iframe headers.
+  await send(
+    {
+      action: "DOWNLOAD",
+      url: "https://cdn.test/master.m3u8",
+      pageUrl: "https://top.test/",
+      tabId: 7,
+    },
+    { url: "chrome-extension://test/popup.html" },
+  );
+  assert.equal(
+    posted.at(-1).items[0].headers.Referer,
+    "https://player.test/e/video",
+  );
+  // Another frame must not inherit a player's stream.
+  await send(
+    {
+      action: "DOWNLOAD_VIDEO",
+      url: "blob:https://other.test/id",
+      pageUrl: "https://other.test/watch",
+    },
+    { tab: { id: 7 }, url: "https://other.test/watch", frameId: 3 },
+  );
+  assert.equal(posted.at(-1).items[0].url, "https://other.test/watch");
   removed(7);
 });
 test("floating button attaches to late source and sends the current source", async () => {
@@ -148,7 +268,7 @@ test("floating button attaches to late source and sends the current source", asy
   shadows[0].querySelector("button").click();
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(
-    messages.find((m) => m.action === "DOWNLOAD").url,
+    messages.find((m) => m.action === "DOWNLOAD_VIDEO").url,
     "https://cdn.test/second.mp4",
   );
   dom.window.close();

@@ -131,6 +131,7 @@ export class DownloadManager extends EventEmitter {
     dataDir,
     ytDlp = "yt-dlp",
     ffmpeg = "ffmpeg",
+    pluginDir = path.resolve("plugins"),
     spawnProcess = spawn,
   } = {}) {
     super();
@@ -138,6 +139,7 @@ export class DownloadManager extends EventEmitter {
     this.ytDlp = ytDlp;
     this.ffmpeg = ffmpeg && path.isAbsolute(ffmpeg) ? ffmpeg : null;
     this.spawnProcess = spawnProcess;
+    this.pluginDir = pluginDir;
     this.running = new Map();
     this.analyzers = new Set();
     this.closing = false;
@@ -215,7 +217,7 @@ export class DownloadManager extends EventEmitter {
   }
   publicState() {
     return {
-      version: "3.0.0",
+      version: "3.0.1",
       settings: this.settings,
       tasks: this.tasks.map(({ headers, ...t }) => t),
       warning: this.loadWarning || null,
@@ -341,6 +343,9 @@ export class DownloadManager extends EventEmitter {
   }
   headerArgs(headers) {
     return [
+      "--no-plugin-dirs",
+      "--plugin-dirs",
+      this.pluginDir,
       "--js-runtimes",
       process.platform === "win32" && path.isAbsolute(this.ytDlp)
         ? "node:" + path.join(path.dirname(this.ytDlp), "node.exe")

@@ -62,10 +62,9 @@
           el.currentSrc || el.src || el.querySelector("source")?.src;
         button.disabled = true;
         message.hidden = true;
-        const url =
-          current && /^https?:/i.test(current) ? current : location.href;
+        const url = current || location.href;
         const r = await send({
-          action: "DOWNLOAD",
+          action: "DOWNLOAD_VIDEO",
           url,
           title: document.title,
           pageUrl: location.href,

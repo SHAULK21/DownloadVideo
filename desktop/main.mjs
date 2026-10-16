@@ -49,7 +49,16 @@ const ytDlp =
 const ffmpeg =
   process.env.OMNIGRAB_FFMPEG ||
   (process.platform === "win32" ? path.join(tools, "ffmpeg.exe") : "ffmpeg");
-const manager = new DownloadManager({ dataDir, ytDlp, ffmpeg });
+let pluginDir = path.join(base, "plugins");
+if (sea) {
+  pluginDir = path.join(dataDir, "plugins", "3.0.1");
+  for (const key of getAssetKeys().filter((k) => k.startsWith("plugins/"))) {
+    const destination = path.join(pluginDir, key.slice("plugins/".length));
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, Buffer.from(getAsset(key)));
+  }
+}
+const manager = new DownloadManager({ dataDir, ytDlp, ffmpeg, pluginDir });
 const token = persistentToken(dataDir);
 const port = Number(process.env.OMNIGRAB_PORT) || 17893;
 const address = `http://127.0.0.1:${port}/#token=${token}`;
@@ -79,7 +88,7 @@ server.on("error", async (error) => {
   process.exitCode = 1;
 });
 server.listen(port, "127.0.0.1", () => {
-  console.log("OmniGrab 3.0 — загрузчик запущен.");
+  console.log("OmniGrab 3.0.1 — загрузчик запущен.");
   console.log("Интерфейс: " + address);
   console.log("Файлы: " + manager.settings.defaultDownloadDir);
   console.log(

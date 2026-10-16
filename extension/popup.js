@@ -22,6 +22,7 @@ async function download(url, button) {
     url,
     title: tab?.title,
     pageUrl: tab?.url,
+    tabId: tab?.id,
   });
   button.disabled = false;
   status(r.error || "Задача добавлена в OmniGrab.", !!r.error);

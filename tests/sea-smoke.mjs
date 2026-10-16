@@ -26,6 +26,14 @@ const made = spawnSync("ffmpeg", [
 assert.equal(made.status, 0, made.stderr?.toString());
 const original = fs.readFileSync(path.join(temp, "test.mp4"));
 const fixture = http.createServer((req, res) => {
+  if (
+    req.url === "/lulu.mp4" &&
+    req.headers.referer !== "https://luluvido.com/e/abc123def456"
+  ) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
   res.writeHead(200, {
     "Content-Type": "video/mp4",
     "Content-Length": original.length,
@@ -91,6 +99,46 @@ try {
   assert.equal((await fetch(base + "/")).status, 200);
   assert.equal((await fetch(base + "/extension.zip")).status, 200);
   assert.equal((await fetch(base + "/THIRD_PARTY_NOTICES.txt")).status, 200);
+  const pluginDir = path.join(temp, "state", "plugins", "3.0.1");
+  const plugin = "omnigrab/yt_dlp_plugins/extractor/omnigrab_lulu.py";
+  assert.deepEqual(
+    fs.readFileSync(path.join(pluginDir, plugin)),
+    fs.readFileSync(path.join("plugins", plugin)),
+  );
+  // Verify the actual embedded Windows yt-dlp can load the embedded adapter.
+  fs.writeFileSync(
+    path.join(temp, "abc123def456_https_-_luluvido.com_e_abc123def456.dump"),
+    `<script>jwplayer("vplayer").setup({sources:[{file:"http://127.0.0.1:${fixture.address().port}/lulu.mp4"}],title:"Fixture"})</script>`,
+  );
+  const replay = await new Promise((resolve, reject) => {
+    const process = spawn(
+      path.join(temp, "state", "tools", "3.0.0", "yt-dlp.exe"),
+      [
+        "--ignore-config",
+        "--no-plugin-dirs",
+        "--plugin-dirs",
+        pluginDir,
+        "--load-pages",
+        "--skip-download",
+        "--dump-single-json",
+        "https://luluvido.com/e/abc123def456",
+      ],
+      { cwd: temp, windowsHide: true },
+    );
+    let out = "",
+      err = "";
+    process.stdout.on("data", (b) => (out += b));
+    process.stderr.on("data", (b) => (err += b));
+    process.on("error", reject);
+    process.on("close", (code) =>
+      code === 0 ? resolve(JSON.parse(out)) : reject(Error(err)),
+    );
+  });
+  assert.equal(replay.extractor, "omnigrab:lulu");
+  assert.equal(
+    replay.http_headers.Referer,
+    "https://luluvido.com/e/abc123def456",
+  );
   await call("/api/settings", "PUT", {
     defaultDownloadDir: path.join(temp, "downloads"),
   });
@@ -111,7 +159,7 @@ try {
     createHash("sha256").update(original).digest("hex"),
   );
   console.log(
-    "SEA executable smoke passed: embedded UI, extension, licenses, actual download and SHA256.",
+    "SEA executable smoke passed: embedded UI, extension, Lulu adapter, licenses, actual download and SHA256.",
   );
 } finally {
   child.kill();

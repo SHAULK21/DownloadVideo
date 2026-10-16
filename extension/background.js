@@ -15,6 +15,38 @@ const DEFAULTS = {
   minFileSizeToCatchKb: 512,
 };
 let registryQueue = Promise.resolve();
+const requestHeaders = new Map();
+function httpUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (details.tabId < 0 || details.url.startsWith(BASE)) return;
+    const headers = {};
+    for (const h of details.requestHeaders || []) {
+      const key = {
+        referer: "Referer",
+        origin: "Origin",
+        "user-agent": "User-Agent",
+      }[h.name.toLowerCase()];
+      if (key && h.value) headers[key] = h.value;
+    }
+    requestHeaders.set(details.requestId, headers);
+    if (requestHeaders.size > 1000)
+      requestHeaders.delete(requestHeaders.keys().next().value);
+  },
+  { urls: ["<all_urls>"] },
+  ["requestHeaders", "extraHeaders"],
+);
+chrome.webRequest.onErrorOccurred.addListener(
+  (details) => requestHeaders.delete(details.requestId),
+  { urls: ["<all_urls>"] },
+);
 async function local(path, method = "GET", body) {
   const { token } = await chrome.storage.local.get("token");
   let response;
@@ -46,6 +78,8 @@ async function settings() {
   }
 }
 async function record(details) {
+  const headers = requestHeaders.get(details.requestId) || {};
+  requestHeaders.delete(details.requestId);
   if (details.tabId < 0 || details.url.startsWith(BASE)) return;
   const h = (name) =>
     (details.responseHeaders || []).find((h) => h.name.toLowerCase() === name)
@@ -57,6 +91,8 @@ async function record(details) {
   } catch {
     return;
   }
+  // Individual segments are not complete videos. Keep the manifest instead.
+  if (["ts", "m4s", "cmfv", "cmfa"].includes(ext)) return;
   const types = {
     "application/vnd.apple.mpegurl": "m3u8",
     "application/x-mpegurl": "m3u8",
@@ -68,12 +104,6 @@ async function record(details) {
     "audio/ogg": "ogg",
   };
   ext = types[mime.split(";")[0]] || ext;
-  if (
-    !mime.startsWith("video/") &&
-    !mime.startsWith("audio/") &&
-    !["m3u8", "mpd"].includes(ext)
-  )
-    return;
   const { settings: saved } = await chrome.storage.local.get("settings");
   const cfg = { ...DEFAULTS, ...saved };
   if (!cfg.interceptVideoTypes.includes(ext)) return;
@@ -88,8 +118,16 @@ async function record(details) {
   const key = "media_" + details.tabId;
   const data = await chrome.storage.session.get(key);
   let list = data[key] || [];
-  if (list.some((x) => x.url === details.url)) return;
-  list.push({ url: details.url, mime, ext, size, timestamp: Date.now() });
+  list = list.filter((x) => x.url !== details.url);
+  list.push({
+    url: details.url,
+    mime,
+    ext,
+    size,
+    headers,
+    frameId: details.frameId ?? 0,
+    timestamp: Date.now(),
+  });
   list = list.slice(-80);
   await chrome.storage.session.set({ [key]: list });
   try {
@@ -141,12 +179,41 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const r = await chrome.storage.session.get("media_" + id);
       return { media: r["media_" + id] || [] };
     }
-    if (message.action === "DOWNLOAD") {
-      const raw = String(message.url || "");
+    if (["DOWNLOAD", "DOWNLOAD_VIDEO"].includes(message.action)) {
+      await registryQueue;
+      const page =
+        httpUrl(sender.url) ||
+        httpUrl(message.pageUrl) ||
+        httpUrl(sender.tab?.url);
+      const tabId = sender.tab?.id ?? message.tabId;
+      const saved = await chrome.storage.session.get("media_" + tabId);
+      const media = saved["media_" + tabId] || [];
+      let raw = httpUrl(message.url);
+      let captured = media.find((x) => x.url === raw);
+      if (message.action === "DOWNLOAD_VIDEO" && !raw) {
+        const inFrame = media.filter(
+          (x) => x.frameId === (sender.frameId ?? 0),
+        );
+        const manifests = inFrame.filter((x) =>
+          ["m3u8", "mpd"].includes(x.ext),
+        );
+        const masters = manifests.filter((x) =>
+          /\/(master|playlist)\.(m3u8|mpd)(?:\?|$)/i.test(x.url),
+        );
+        const candidates = masters.length
+          ? masters
+          : manifests.length
+            ? manifests
+            : inFrame;
+        // Multiple players/ads must not silently select an unrelated video.
+        if (candidates.length === 1) captured = candidates[0];
+        raw = captured?.url || page;
+      }
+      if (!raw)
+        throw Error(
+          "Не найден HTTP(S) источник. Включите видео и обновите список потоков.",
+        );
       const url = new URL(raw);
-      if (!["http:", "https:"].includes(url.protocol))
-        throw Error("Отправьте страницу видео вместо blob-потока.");
-      const page = sender.url || sender.tab?.url || message.pageUrl;
       const r = await local("/api/tasks", "POST", {
         items: [
           {
@@ -155,6 +222,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             headers: {
               ...(page ? { Referer: page } : {}),
               "User-Agent": navigator.userAgent,
+              ...captured?.headers,
             },
           },
         ],

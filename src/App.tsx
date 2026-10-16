@@ -614,7 +614,7 @@ export default function App() {
         <button className="brand" onClick={() => setTab("downloads")}>
           <img src={icon} alt="" />
           <span>
-            OmniGrab <small>3.0</small>
+            OmniGrab <small>3.0.1</small>
           </span>
         </button>
         <nav className={mobileMenu ? "open" : ""}>
@@ -1120,7 +1120,7 @@ export default function App() {
         </section>
       )}
       <footer className="app-footer">
-        <span>OmniGrab 3.0 · Локальный загрузчик для ПК</span>
+        <span>OmniGrab 3.0.1 · Локальный загрузчик для ПК</span>
         <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noreferrer">
           yt-dlp + FFmpeg · лицензии
         </a>
